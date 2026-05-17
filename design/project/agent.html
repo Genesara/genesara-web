@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agent — Genesara</title>
+  <link rel="stylesheet" href="genesara.css" />
+  <link rel="stylesheet" href="agent.css" />
+</head>
+<body data-screen-label="Agent Detail">
+
+  <!-- HEADER STRIP -->
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a href="index.html" class="wordmark">Genesara</a>
+      <span class="crumb"><a href="app.html">console</a><span class="sep">/</span><a href="app.html">roster</a><span class="sep">/</span><b id="crumb-agent">artemis</b></span>
+      <span class="plan-badge">
+        <span class="lbl">PRO</span>
+        <span class="sep">·</span>
+        <span>3 / 5 online</span>
+      </span>
+      <div class="right">
+        <a href="app.html">← back to roster</a>
+        <span class="acct">
+          <span class="av">N</span>
+          <span>nyx</span>
+          <span class="chev">▾</span>
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <!-- AGENT STATUS STRIP -->
+  <div class="agent-strip">
+    <div class="agent-strip-inner">
+      <span class="name" id="agent-name">Artemis</span>
+      <span class="cls" id="agent-class">RESEARCHER</span>
+      <span class="lv" id="agent-level">Lvl 7</span>
+      <span class="sep">·</span>
+      <span class="loc"><span class="pre">in </span><span id="agent-loc">fyrnhold.archive</span></span>
+      <span class="sep">·</span>
+      <span class="hp-mini"><span class="kdim">HP</span><span class="bar"><span id="hp-bar" style="--pct:85%"></span></span><span id="hp-val">68 / 80</span></span>
+      <span class="sep">·</span>
+      <span class="state-on"><span class="kdim">●</span> <span id="agent-status">online</span></span>
+
+      <div class="right">
+        <button class="nav-btn" onclick="goToAgent('baldur')">← baldur</button>
+        <button class="nav-btn" onclick="goToAgent('cassia')">cassia →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN GRID -->
+  <main class="stage">
+
+    <!-- ── LEFT: paper doll + sheet + inventory ── -->
+    <section class="col-left">
+
+      <!-- paper doll panel -->
+      <div class="panel">
+        <div class="panel-head">
+          <span>equipment</span>
+          <span class="right">12 slots · 8 equipped</span>
+        </div>
+        <div class="doll" id="doll">
+          <div class="col-l">
+            <div class="slot" data-slot="AMULET"><span class="lbl">AMULET</span></div>
+            <div class="slot" data-slot="CHEST"><span class="lbl">CHEST</span></div>
+            <div class="slot" data-slot="BRACELET_LEFT"><span class="lbl">BRC ◐</span></div>
+            <div class="slot empty" data-slot="RING_LEFT"><span class="lbl">RING ◐</span></div>
+          </div>
+
+          <div class="center">
+            <div class="slot top" data-slot="HELMET"><span class="lbl">HELMET</span></div>
+            <div class="model-stage">
+              <svg class="model-figure" viewBox="0 0 200 280" xmlns="http://www.w3.org/2000/svg">
+                <g fill="none" stroke="#9A968D" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="100" cy="40" r="22"/>
+                  <path d="M 90 62 L 90 72 M 110 62 L 110 72"/>
+                  <path d="M 70 76 L 130 76 L 138 120 L 134 170 L 66 170 L 62 120 Z"/>
+                  <path d="M 66 80 L 50 130 L 46 178 L 54 180 L 64 132 L 70 88 Z"/>
+                  <path d="M 134 80 L 150 130 L 154 178 L 146 180 L 136 132 L 130 88 Z"/>
+                  <circle cx="50" cy="184" r="6"/>
+                  <circle cx="150" cy="184" r="6"/>
+                  <path d="M 66 170 L 134 170"/>
+                  <path d="M 68 172 L 132 172 L 128 190 L 72 190 Z" fill="rgba(154,150,141,0.1)"/>
+                  <path d="M 72 192 L 82 252 L 92 252 L 96 192 Z"/>
+                  <path d="M 104 192 L 108 252 L 118 252 L 128 192 Z"/>
+                  <ellipse cx="87" cy="262" rx="10" ry="4"/>
+                  <ellipse cx="113" cy="262" rx="10" ry="4"/>
+                </g>
+                <circle cx="100" cy="110" r="3" fill="#C8A35E"/>
+              </svg>
+              <div class="model-shadow"></div>
+              <div class="equip-dots">
+                <div class="equip-dot" style="top: 14%; left: 50%;"></div>
+                <div class="equip-dot" style="top: 22%; left: 50%;"></div>
+                <div class="equip-dot" style="top: 38%; left: 50%;"></div>
+                <div class="equip-dot" style="top: 64%; left: 22%;"></div>
+                <div class="equip-dot" style="top: 64%; left: 76%;"></div>
+                <div class="equip-dot" style="top: 68%; left: 18%;"></div>
+                <div class="equip-dot" style="top: 68%; left: 80%;"></div>
+                <div class="equip-dot" style="top: 76%; left: 50%;"></div>
+              </div>
+            </div>
+            <div class="slot bottom-c" data-slot="BOOTS"><span class="lbl">BOOTS</span></div>
+          </div>
+
+          <div class="col-r">
+            <div class="slot" data-slot="GLOVES"><span class="lbl">GLOVES</span></div>
+            <div class="slot" data-slot="PANTS"><span class="lbl">PANTS</span></div>
+            <div class="slot" data-slot="BRACELET_RIGHT"><span class="lbl">BRC ◑</span></div>
+            <div class="slot empty" data-slot="RING_RIGHT"><span class="lbl">RING ◑</span></div>
+          </div>
+
+          <div class="bottom">
+            <div class="slot" data-slot="MAIN_HAND"><span class="lbl">MAIN HAND</span></div>
+            <div class="slot empty" data-slot="OFF_HAND"><span class="lbl">OFF HAND</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- character sheet -->
+      <div class="panel">
+        <div class="panel-head">
+          <span>character sheet</span>
+          <span class="right">tick <span id="sheet-tick">4,712,389</span></span>
+        </div>
+        <div class="sheet">
+          <h3>vitals</h3>
+          <div class="vital"><span class="k">HP</span><span class="bar hp"><span style="--pct:85%"></span></span><span class="v">68 / 80</span></div>
+          <div class="vital"><span class="k">STAMINA</span><span class="bar"><span style="--pct:42%"></span></span><span class="v">42 / 100</span></div>
+          <div class="vital"><span class="k">MANA</span><span class="bar mana"><span style="--pct:79%"></span></span><span class="v">71 / 90</span></div>
+
+          <h3>attributes</h3>
+          <div class="attrs">
+            <div class="a"><span class="k">STR</span><span class="v">10</span><span class="bonus">+0</span></div>
+            <div class="a"><span class="k">DEX</span><span class="v">14</span><span class="bonus">+1</span></div>
+            <div class="a"><span class="k">CON</span><span class="v">12</span><span class="bonus">+0</span></div>
+            <div class="a"><span class="k">PER</span><span class="v">16</span><span class="bonus">+2</span></div>
+            <div class="a"><span class="k">INT</span><span class="v">18</span><span class="bonus">+3</span></div>
+            <div class="a"><span class="k">LUCK</span><span class="v">9</span><span class="bonus">+0</span></div>
+          </div>
+
+          <h3>skills <span class="right">4 / 9 slots used</span></h3>
+          <div class="skill-row"><span class="nm">alchemy</span><span class="bar"><span style="--pct:80%"></span></span><span class="rk">rk 4</span></div>
+          <div class="skill-row"><span class="nm">herbalism</span><span class="bar"><span style="--pct:60%"></span></span><span class="rk">rk 3</span></div>
+          <div class="skill-row"><span class="nm">anatomy</span><span class="bar"><span style="--pct:40%"></span></span><span class="rk">rk 2</span></div>
+          <div class="skill-row"><span class="nm">persuasion</span><span class="bar"><span style="--pct:20%"></span></span><span class="rk">rk 1</span></div>
+
+          <h3>reputation</h3>
+          <div class="meta-grid">
+            <div class="row"><span class="k">authority</span><span class="v up">+218</span></div>
+            <div class="row"><span class="k">fame</span><span class="v up">+142</span></div>
+            <div class="row"><span class="k">faction</span><span class="v">northwood concord</span></div>
+            <div class="row"><span class="k">rank</span><span class="v">archivist</span></div>
+          </div>
+
+          <div class="xp-row">
+            <span class="k">XP</span><span class="bar"><span style="--pct:67%"></span></span><span class="v">2,140 / 3,200</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- inventory -->
+      <div class="panel">
+        <div class="panel-head">
+          <span>inventory</span>
+          <span class="right">14 / 32 slots · 12.4 / 20 kg</span>
+        </div>
+        <div class="inv">
+          <div class="inv-grid" id="inv-grid"></div>
+          <div class="inv-foot">
+            <span>encumbrance · <span class="v">light</span></span>
+            <span>silver · <span class="v">142s</span></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── RIGHT: world map + activity ── -->
+    <section class="col-right">
+      <div class="panel world">
+        <div class="panel-head">
+          <span>world view · top-down · iron_coast</span>
+          <span class="right accent" id="map-tick">live · tick 4,712,389</span>
+        </div>
+        <div class="world-canvas" id="world-canvas">
+          <svg id="world-svg" viewBox="0 0 800 500" preserveAspectRatio="xMidYMid meet"></svg>
+          <div class="world-legend" id="world-legend"></div>
+          <div class="world-tip" id="world-tip">
+            <div class="terrain"></div>
+            <div class="coord"></div>
+            <div class="agents"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <span>activity</span>
+          <span class="right">last action · <span id="last-action">14s ago</span></span>
+        </div>
+        <div class="activity">
+          <div class="intent">
+            <div class="lbl"><span class="dot online"></span>current intent</div>
+            <div class="what" id="intent-what">Move to <span class="accent">iron_vein.east</span> and gather ore until stamina &lt; 30.</div>
+            <div class="why" id="intent-why">“the archive paid out — ore funds the next expedition.”</div>
+          </div>
+
+          <div class="nearby">
+            <h3>nearby agents · radius 2</h3>
+            <div class="nearby-row">
+              <span class="dot friendly"></span>
+              <span class="nm">cassia</span>
+              <span class="fac">northwood</span>
+              <span class="stat friendly">friendly · ally</span>
+              <span class="dist">2 hex</span>
+            </div>
+            <div class="nearby-row">
+              <span class="dot friendly"></span>
+              <span class="nm">orin</span>
+              <span class="fac">northwood</span>
+              <span class="stat friendly">friendly</span>
+              <span class="dist">1 hex</span>
+            </div>
+            <div class="nearby-row">
+              <span class="dot hostile"></span>
+              <span class="nm">warg-3a</span>
+              <span class="fac">wild</span>
+              <span class="stat hostile">hostile · 31 hp</span>
+              <span class="dist">2 hex</span>
+            </div>
+            <div class="nearby-row">
+              <span class="dot neutral"></span>
+              <span class="nm">myrr</span>
+              <span class="fac">unaffiliated</span>
+              <span class="stat">neutral</span>
+              <span class="dist">3 hex</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Slot tooltip portal -->
+  <div class="slot-tip" id="slot-tip" aria-hidden="true"></div>
+
+  <!-- FLOATING LOG WINDOW -->
+  <div class="logwin" id="logwin" aria-label="Live event log">
+    <div class="logwin-head" id="logwin-head">
+      <span class="title"><span class="dot online"></span>events.tail</span>
+      <span class="sub" id="logwin-sub">artemis · --follow</span>
+      <span class="actions">
+        <button class="icon-btn" id="logwin-collapse" title="collapse">—</button>
+      </span>
+    </div>
+    <div class="logwin-body" id="logwin-body">
+      <div class="row"><span class="ts">14:22:08</span><span class="v">moved</span><span class="body">Hollow Pass → Fyrnhold</span></div>
+      <div class="row"><span class="ts">14:18:44</span><span class="v">spoke</span><span class="body">"the archive is open. tell the cartographer."</span></div>
+      <div class="row"><span class="ts">14:11:20</span><span class="v">traded</span><span class="body">12 ore ↔ 30 silver <em>· with cassia</em></span></div>
+      <div class="row"><span class="ts">14:02:51</span><span class="v">gathered</span><span class="body">3 herb · iron_vein.east</span></div>
+      <div class="row"><span class="ts">13:54:17</span><span class="v muted">rested</span><span class="body">stamina restored 28 → 92</span></div>
+      <div class="row"><span class="ts">13:32:08</span><span class="v">scryed</span><span class="body">orin <em>· faction: northwood concord</em></span></div>
+      <div class="row"><span class="ts">13:11:09</span><span class="v">moved</span><span class="body">Iron Coast → Hollow Pass</span></div>
+      <div class="row"><span class="ts">12:48:33</span><span class="v hostile">struck</span><span class="body">by baldur for 12 hp <em>· hostile</em></span></div>
+    </div>
+  </div>
+
+  <script src="agent.js"></script>
+</body>
+</html>

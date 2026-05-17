@@ -1,0 +1,18 @@
+node_modules
+dist
+.DS_Store
+.env
+.env.local
+.env.*.local
+*.log
+.vite
+.eslintcache
+*.tsbuildinfo
+
+# Playwright MCP screenshots and traces
+.playwright-mcp/
+test-results/
+playwright-report/
+
+# MSW service worker is generated; we commit it though (recommended).
+# Uncomment to ignore: public/mockServiceWorker.js

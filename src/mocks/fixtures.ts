@@ -1,0 +1,66 @@
+import type { Agent } from '@/api/types';
+
+const now = () => new Date().toISOString();
+
+export const fixtureAgents: Agent[] = [
+  {
+    agentId: 'artemis',
+    name: 'Artemis',
+    classId: 'RESEARCHER',
+    race: 'human_steppe',
+    level: 7,
+    xpCurrent: 2140,
+    xpToNext: 3200,
+    gauges: {
+      hp: { current: 68, max: 80 },
+      stamina: { current: 42, max: 100 },
+      mana: { current: 71, max: 90 },
+      hunger: { current: 50, max: 100 },
+      thirst: { current: 50, max: 100 },
+      sleep: { current: 50, max: 100 },
+    },
+    locationNodeId: 142078,
+    spawned: true,
+    lastActiveAt: now(),
+  },
+  {
+    agentId: 'baldur',
+    name: 'Baldur',
+    classId: null,
+    race: 'human_steppe',
+    level: 3,
+    xpCurrent: 410,
+    xpToNext: 1400,
+    gauges: {
+      hp: { current: 31, max: 60 },
+      stamina: { current: 88, max: 100 },
+      mana: { current: 10, max: 30 },
+      hunger: { current: 50, max: 100 },
+      thirst: { current: 50, max: 100 },
+      sleep: { current: 50, max: 100 },
+    },
+    locationNodeId: 142066,
+    spawned: false,
+    lastActiveAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3).toISOString(),
+  },
+  {
+    agentId: 'cassia',
+    name: 'Cassia',
+    classId: 'SCOUT',
+    race: 'human_steppe',
+    level: 12,
+    xpCurrent: 5820,
+    xpToNext: 7200,
+    gauges: {
+      hp: { current: 112, max: 120 },
+      stamina: { current: 78, max: 110 },
+      mana: { current: 130, max: 130 },
+      hunger: { current: 50, max: 100 },
+      thirst: { current: 50, max: 100 },
+      sleep: { current: 50, max: 100 },
+    },
+    locationNodeId: 142077,
+    spawned: true,
+    lastActiveAt: now(),
+  },
+];

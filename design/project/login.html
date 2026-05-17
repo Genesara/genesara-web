@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sign in — Genesara</title>
+  <link rel="stylesheet" href="genesara.css" />
+  <style>
+    body { display: flex; flex-direction: column; min-height: 100vh; }
+    main { flex: 1; display: flex; align-items: center; justify-content: center; padding: 64px 20px; }
+
+    .auth {
+      width: 100%;
+      max-width: 420px;
+    }
+    .auth-head {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+    .auth-head .wordmark { font-size: 18px; }
+    .auth-head h1 {
+      font-family: var(--display);
+      font-weight: 600;
+      font-size: 32px;
+      letter-spacing: -0.02em;
+      margin: 18px 0 6px;
+      line-height: 1.1;
+    }
+    .auth-head p { color: var(--text-dim); font-size: 14px; margin: 0; font-family: var(--mono); }
+
+    .card {
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      padding: 32px 32px;
+    }
+    .card form { display: flex; flex-direction: column; gap: 18px; }
+    .card .submit { margin-top: 6px; height: 42px; }
+
+    .row-flex { display: flex; align-items: center; justify-content: space-between; }
+    .row-flex a { font-family: var(--mono); font-size: 12px; }
+
+    .alt {
+      text-align: center;
+      margin-top: 22px;
+      font-family: var(--mono);
+      font-size: 12.5px;
+      color: var(--text-dim);
+    }
+    .alt a { color: var(--text); }
+
+    .legalese {
+      text-align: center;
+      margin-top: 28px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-dim);
+      letter-spacing: 0.04em;
+    }
+
+    /* meta sidecar – tick echo */
+    .echo {
+      margin-top: 28px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-dim);
+      text-align: center;
+      letter-spacing: 0.04em;
+    }
+    .echo .dot { width: 6px; height: 6px; margin-right: 6px; }
+  </style>
+</head>
+<body data-screen-label="Login">
+
+  <nav class="nav">
+    <div class="nav-inner">
+      <a href="index.html" class="wordmark">Genesara</a>
+      <div class="nav-links">
+        <a href="index.html#world">world</a>
+        <a href="pricing.html">pricing</a>
+        <a href="changelog.html">changelog</a>
+        <span class="sep hide-sm">·</span>
+        <a href="signup.html" class="cta">sign up</a>
+      </div>
+    </div>
+  </nav>
+
+  <main>
+    <div class="auth">
+      <div class="auth-head">
+        <a href="index.html" class="wordmark">Genesara</a>
+        <h1>Sign in.</h1>
+        <p>operator console · v0.4.2</p>
+      </div>
+
+      <div class="card">
+        <form onsubmit="event.preventDefault(); window.location.href='app.html';">
+          <div>
+            <label for="username" class="field-label">Username</label>
+            <input id="username" name="username" type="text" class="field" autocomplete="username" placeholder="your-handle" required />
+          </div>
+          <div>
+            <div class="row-flex" style="margin-bottom:6px;">
+              <label for="password" class="field-label" style="margin-bottom:0;">Password</label>
+              <a href="#">forgot?</a>
+            </div>
+            <input id="password" name="password" type="password" class="field" autocomplete="current-password" placeholder="••••••••••" required />
+          </div>
+          <button type="submit" class="btn btn-primary submit">Sign in</button>
+        </form>
+      </div>
+
+      <div class="alt">No account? <a href="signup.html">Create one →</a></div>
+
+      <div class="echo"><span class="dot online"></span>WORLD ONLINE · TICK 4,712,389</div>
+
+      <div class="legalese">BY SIGNING IN YOU AGREE TO THE TERMS OF SERVICE.</div>
+    </div>
+  </main>
+
+  <footer class="foot">
+    <div class="foot-inner">
+      <span class="wordmark" style="font-size:15px;">Genesara</span>
+      <a href="index.html#world">world</a>
+      <a href="pricing.html">pricing</a>
+      <a href="changelog.html">changelog</a>
+      <span class="sep">·</span>
+      <a href="#">source</a>
+      <a href="#">status</a>
+      <span class="right">MIT · 2026</span>
+    </div>
+  </footer>
+</body>
+</html>
