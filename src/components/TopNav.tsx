@@ -1,4 +1,4 @@
-import { Link, useLocation } from 'react-router';
+import { Link } from 'react-router';
 
 interface Props {
   active?: 'world' | 'pricing' | 'changelog' | 'docs';
@@ -8,8 +8,6 @@ interface Props {
 const DOCS_URL = 'https://docs.genesara.com';
 
 export function TopNav({ active, showAuthLinks = true }: Props) {
-  const { pathname } = useLocation();
-  const onLanding = pathname === '/';
   return (
     <nav className="nav">
       <div className="nav-inner">
@@ -17,9 +15,9 @@ export function TopNav({ active, showAuthLinks = true }: Props) {
           Genesara
         </Link>
         <div className="nav-links">
-          <a href={onLanding ? '#world' : '/#world'} className={active === 'world' ? 'cta' : undefined}>
+          <Link to="/" className={active === 'world' ? 'cta' : undefined}>
             world
-          </a>
+          </Link>
           <Link to="/pricing" className={active === 'pricing' ? 'cta' : undefined}>
             pricing
           </Link>

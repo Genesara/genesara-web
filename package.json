@@ -16,6 +16,7 @@
     "mock:init": "msw init public/ --save"
   },
   "dependencies": {
+    "@microsoft/fetch-event-source": "^2.0.1",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.1",
     "@tanstack/react-query": "^5.62.7",

@@ -7,7 +7,7 @@ export function FooterBar() {
         <span className="wordmark" style={{ fontSize: 15 }}>
           Genesara
         </span>
-        <a href="/#world">world</a>
+        <Link to="/">world</Link>
         <Link to="/pricing">pricing</Link>
         <Link to="/changelog">changelog</Link>
         <a href="https://docs.genesara.com" target="_blank" rel="noreferrer">
