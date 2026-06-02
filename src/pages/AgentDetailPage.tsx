@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -16,6 +16,8 @@ import { useAuth } from '@/stores/auth';
 import { useAgentEvents, type ReceivedAgentEvent } from '@/composables/useAgentEvents';
 import { formatTick, useStats } from '@/composables/useTick';
 import { CharacterViewer } from '@/components/CharacterViewer';
+import { WorldMap3D } from '@/components/WorldMap3D';
+import { FloatingWindow } from '@/components/FloatingWindow';
 import '@/styles/app.css';
 import '@/styles/agent.css';
 
@@ -56,6 +58,13 @@ function stanceFor(score: number): 'friendly' | 'hostile' | 'neutral' {
   return 'neutral';
 }
 
+// One display glyph for an inventory cell — first letter of the item's last
+// name segment (`herb_blueleaf` → B, `map_fragment.iron_coast` → I).
+function glyphFor(itemId: string): string {
+  const seg = itemId.split(/[._]/).filter(Boolean).pop() ?? itemId;
+  return (seg[0] ?? '?').toUpperCase();
+}
+
 function formatEvent(ev: ReceivedAgentEvent): { ts: string; verb: string; body: string; muted?: boolean } {
   const verb = ev.type.split('.').slice(-1)[0] ?? ev.type;
   const ts = new Date(ev.receivedAt).toLocaleTimeString();
@@ -90,6 +99,70 @@ function formatEvent(ev: ReceivedAgentEvent): { ts: string; verb: string; body: 
   return { ts, verb, body };
 }
 
+// ── Floating window manager ───────────────────────────────────────────────
+type WindowId = 'loadout' | 'skills' | 'inventory' | 'sheet';
+
+interface WinState {
+  open: boolean;
+  pos: { x: number; y: number };
+  z: number;
+}
+
+interface WinConfig {
+  width: number;
+  height: number;
+  // Default position is computed from the viewport at open time.
+  initial: (vw: number, vh: number) => { x: number; y: number };
+}
+
+const WIN_CONFIG: Record<WindowId, WinConfig> = {
+  loadout: { width: 420, height: 540, initial: () => ({ x: 300, y: 150 }) },
+  skills: { width: 420, height: 460, initial: () => ({ x: 360, y: 180 }) },
+  inventory: { width: 400, height: 360, initial: () => ({ x: 420, y: 210 }) },
+  sheet: { width: 440, height: 480, initial: () => ({ x: 480, y: 150 }) },
+};
+
+const WIN_IDS: WindowId[] = ['loadout', 'skills', 'inventory', 'sheet'];
+
+function useWindowManager() {
+  const [state, setState] = useState<Record<WindowId, WinState>>(() => {
+    const init = {} as Record<WindowId, WinState>;
+    for (const id of WIN_IDS) init[id] = { open: false, pos: { x: 0, y: 0 }, z: 0 };
+    return init;
+  });
+  const topZ = useRef(100);
+
+  const focus = useCallback((id: WindowId) => {
+    topZ.current += 1;
+    const z = topZ.current;
+    setState((s) => ({ ...s, [id]: { ...s[id], z } }));
+  }, []);
+
+  const toggle = useCallback((id: WindowId) => {
+    setState((s) => {
+      const cur = s[id];
+      if (cur.open) return { ...s, [id]: { ...cur, open: false } };
+      topZ.current += 1;
+      const cfg = WIN_CONFIG[id];
+      const pos =
+        cur.pos.x === 0 && cur.pos.y === 0
+          ? cfg.initial(window.innerWidth, window.innerHeight)
+          : cur.pos;
+      return { ...s, [id]: { open: true, pos, z: topZ.current } };
+    });
+  }, []);
+
+  const close = useCallback((id: WindowId) => {
+    setState((s) => ({ ...s, [id]: { ...s[id], open: false } }));
+  }, []);
+
+  const move = useCallback((id: WindowId, pos: { x: number; y: number }) => {
+    setState((s) => ({ ...s, [id]: { ...s[id], pos } }));
+  }, []);
+
+  return { state, focus, toggle, close, move };
+}
+
 export function AgentDetailPage() {
   const { agentId } = useParams();
   const id = agentId ?? '';
@@ -97,8 +170,23 @@ export function AgentDetailPage() {
   const logout = useAuth((s) => s.logout);
   const { data: stats } = useStats();
   const tick = stats?.tick ?? 0;
-  const [logCollapsed, setLogCollapsed] = useState(false);
   const [hoveredSlot, setHoveredSlot] = useState<Slot | null>(null);
+  const win = useWindowManager();
+
+  // Lock the page to a single viewport on the cockpit route. Released on
+  // unmount and on small viewports (so we don't trap users on tiny screens).
+  useEffect(() => {
+    function apply() {
+      const ok = window.innerWidth >= 1100 && window.innerHeight >= 680;
+      document.body.classList.toggle('cockpit-lock', ok);
+    }
+    apply();
+    window.addEventListener('resize', apply);
+    return () => {
+      window.removeEventListener('resize', apply);
+      document.body.classList.remove('cockpit-lock');
+    };
+  }, []);
 
   const isNotFound = (e: unknown) => e instanceof ApiError && e.status === 404;
   const retry404Aware = (count: number, e: unknown) => !isNotFound(e) && count < 1;
@@ -127,12 +215,29 @@ export function AgentDetailPage() {
     retry: retry404Aware,
   });
 
+  const skillsQuery = useQuery({
+    queryKey: qk.agentSkills(id),
+    queryFn: () => agentsApi.skills(id),
+    enabled: !!id && !detailNotFound,
+    retry: retry404Aware,
+  });
+
+  const mapQuery = useQuery({
+    queryKey: qk.agentMap(id),
+    queryFn: () => agentsApi.map(id),
+    refetchInterval: (q) => (isNotFound(q.state.error) ? false : 5000),
+    enabled: !!id && !detailNotFound,
+    retry: retry404Aware,
+  });
+
   // Skip SSE/backfill when the agent is known not to exist.
   const { events } = useAgentEvents(detailNotFound ? undefined : id);
 
   const agent = detailQuery.data;
   const loadout = loadoutQuery.data;
   const relationships = relationshipsQuery.data;
+  const skills = skillsQuery.data;
+  const map = mapQuery.data;
 
   const slotIndex = useMemo(() => {
     const idx: Partial<Record<EquipSlot, EquipmentInstance>> = {};
@@ -146,6 +251,22 @@ export function AgentDetailPage() {
   const equippedCount = Object.values(slotIndex).filter(Boolean).length;
   const hoveredInstance = hoveredSlot ? slotIndex[hoveredSlot] : null;
 
+  const resources = loadout?.stackable ?? [];
+  const keys = loadout?.instances ?? [];
+  const stash = loadout?.equipment.stash ?? [];
+
+  const filledSkills = useMemo(
+    () =>
+      (skills?.slots ?? [])
+        .filter((s) => s.skill)
+        .map((s) => ({ ...s.skill!, slotIndex: s.slotIndex })),
+    [skills],
+  );
+  const maxSkillLevel = useMemo(
+    () => Math.max(10, ...filledSkills.map((s) => s.level), ...(skills?.unslotted ?? []).map((s) => s.level)),
+    [filledSkills, skills],
+  );
+
   const nearby = useMemo(() => {
     const entries = relationships?.entries ?? [];
     return [...entries]
@@ -153,7 +274,7 @@ export function AgentDetailPage() {
       .slice(0, 4);
   }, [relationships]);
 
-  const recentEvents = useMemo(() => events.slice(-12).reverse(), [events]);
+  const recentEvents = useMemo(() => events.slice(-40).reverse(), [events]);
 
   function onLogout() {
     logout();
@@ -190,9 +311,11 @@ export function AgentDetailPage() {
   }
 
   const spawned = agent.location != null;
+  const hasPendingChoice =
+    agent.pendingClassChoice.length > 0 || agent.pendingEvolutionChoice.length > 0;
 
   return (
-    <>
+    <div className="cockpit">
       <header className="topbar">
         <div className="topbar-inner">
           <Link to="/" className="wordmark">
@@ -236,114 +359,25 @@ export function AgentDetailPage() {
           <span className={spawned ? 'state-on' : 'state-off'}>
             <span className="kdim">●</span> {spawned ? 'online' : 'offline'}
           </span>
+          <span className="strip-tick">tick {formatTick(tick)}</span>
         </div>
       </div>
 
-      <main className="stage">
-        <section className="col-left">
-          <div className="panel">
+      {/* ── COCKPIT STAGE — 3 zones, fills remaining viewport ── */}
+      <main className="cockpit-stage">
+        {/* LEFT RAIL — alarm panel + intent */}
+        <section className="rail rail-left">
+          <div className="panel rail-panel">
             <div className="panel-head">
-              <span>equipment</span>
-              <span className="right">12 slots · {equippedCount} equipped</span>
+              <span>vitals</span>
+              <span className="right">{spawned ? 'live' : '—'}</span>
             </div>
-            <div className="doll">
-              <div className="col-l">
-                {(['AMULET', 'CHEST', 'BRACELET_LEFT', 'RING_LEFT'] as Slot[]).map((slot) => (
-                  <SlotView
-                    key={slot}
-                    slot={slot}
-                    instance={slotIndex[slot]}
-                    active={hoveredSlot === slot}
-                    onHover={setHoveredSlot}
-                  />
-                ))}
-              </div>
-
-              <div className="center">
-                <SlotView
-                  slot="HELMET"
-                  instance={slotIndex.HELMET}
-                  className="top"
-                  active={hoveredSlot === 'HELMET'}
-                  onHover={setHoveredSlot}
-                />
-                <div className="model-stage">
-                  <CharacterViewer
-                    agentId={agent.agentId}
-                    race={agent.race}
-                    loadout={loadout ?? null}
-                  />
-                  <div className="model-shadow" />
-                </div>
-                {!agent.location && (
-                  <div className="model-microcopy">
-                    not spawned · spawn the agent to enter the world
-                  </div>
-                )}
-                <SlotView
-                  slot="BOOTS"
-                  instance={slotIndex.BOOTS}
-                  className="bottom-c"
-                  active={hoveredSlot === 'BOOTS'}
-                  onHover={setHoveredSlot}
-                />
-              </div>
-
-              <div className="col-r">
-                {(['GLOVES', 'PANTS', 'BRACELET_RIGHT', 'RING_RIGHT'] as Slot[]).map((slot) => (
-                  <SlotView
-                    key={slot}
-                    slot={slot}
-                    instance={slotIndex[slot]}
-                    active={hoveredSlot === slot}
-                    onHover={setHoveredSlot}
-                  />
-                ))}
-              </div>
-
-              <div className="bottom">
-                <SlotView
-                  slot="MAIN_HAND"
-                  instance={slotIndex.MAIN_HAND}
-                  active={hoveredSlot === 'MAIN_HAND'}
-                  onHover={setHoveredSlot}
-                />
-                <SlotView
-                  slot="OFF_HAND"
-                  instance={slotIndex.OFF_HAND}
-                  active={hoveredSlot === 'OFF_HAND'}
-                  onHover={setHoveredSlot}
-                />
-              </div>
-            </div>
-
-            {hoveredSlot && hoveredInstance && (
-              <div className="slot-tip" style={{ position: 'static', display: 'block', marginTop: 16 }}>
-                <strong style={{ color: 'var(--accent)' }}>{hoveredInstance.itemId}</strong>
-                <span style={{ color: 'var(--text-dim)', marginLeft: 6 }}>
-                  · {hoveredInstance.rarity}
-                </span>
-                <div style={{ marginTop: 4 }}>
-                  durability {hoveredInstance.durabilityCurrent} / {hoveredInstance.durabilityMax}
-                  {hoveredInstance.creatorAgentId
-                    ? ` · crafted by ${hoveredInstance.creatorAgentId}`
-                    : ''}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="panel">
-            <div className="panel-head">
-              <span>character sheet</span>
-            </div>
-            <div className="sheet">
-              <h3>vitals</h3>
+            <div className="sheet rail-vitals">
               {agent.gauges ? (
                 <>
                   <div className="vital">
                     <span className="k">HP</span>
-                    <span className="bar hp">
+                    <span className={`bar hp${pct(agent.gauges.hp) <= 25 ? ' low' : ''}`}>
                       <span style={{ '--pct': `${pct(agent.gauges.hp)}%` } as React.CSSProperties} />
                     </span>
                     <span className="v">
@@ -352,7 +386,7 @@ export function AgentDetailPage() {
                   </div>
                   <div className="vital">
                     <span className="k">STAMINA</span>
-                    <span className="bar">
+                    <span className={`bar${pct(agent.gauges.stamina) <= 25 ? ' low' : ''}`}>
                       <span style={{ '--pct': `${pct(agent.gauges.stamina)}%` } as React.CSSProperties} />
                     </span>
                     <span className="v">
@@ -361,11 +395,38 @@ export function AgentDetailPage() {
                   </div>
                   <div className="vital">
                     <span className="k">MANA</span>
-                    <span className="bar mana">
+                    <span className={`bar mana${pct(agent.gauges.mana) <= 25 ? ' low' : ''}`}>
                       <span style={{ '--pct': `${pct(agent.gauges.mana)}%` } as React.CSSProperties} />
                     </span>
                     <span className="v">
                       {agent.gauges.mana.current} / {agent.gauges.mana.max}
+                    </span>
+                  </div>
+                  <div className="vital">
+                    <span className="k">HUNGER</span>
+                    <span className={`bar${pct(agent.gauges.hunger) <= 25 ? ' low' : ''}`}>
+                      <span style={{ '--pct': `${pct(agent.gauges.hunger)}%` } as React.CSSProperties} />
+                    </span>
+                    <span className="v">
+                      {agent.gauges.hunger.current} / {agent.gauges.hunger.max}
+                    </span>
+                  </div>
+                  <div className="vital">
+                    <span className="k">THIRST</span>
+                    <span className={`bar${pct(agent.gauges.thirst) <= 25 ? ' low' : ''}`}>
+                      <span style={{ '--pct': `${pct(agent.gauges.thirst)}%` } as React.CSSProperties} />
+                    </span>
+                    <span className="v">
+                      {agent.gauges.thirst.current} / {agent.gauges.thirst.max}
+                    </span>
+                  </div>
+                  <div className="vital">
+                    <span className="k">SLEEP</span>
+                    <span className={`bar${pct(agent.gauges.sleep) <= 25 ? ' low' : ''}`}>
+                      <span style={{ '--pct': `${pct(agent.gauges.sleep)}%` } as React.CSSProperties} />
+                    </span>
+                    <span className="v">
+                      {agent.gauges.sleep.current} / {agent.gauges.sleep.max}
                     </span>
                   </div>
                 </>
@@ -377,89 +438,15 @@ export function AgentDetailPage() {
                   </span>
                 </div>
               )}
-
-              <h3>attributes</h3>
-              <div className="attrs">
-                {ATTR_LABEL.map(([key, label]) => {
-                  const v = agent.attributes[key];
-                  return (
-                    <div className="a" key={key}>
-                      <span className="k">{label}</span>
-                      <span className="v">{v}</span>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="xp-row">
-                <span className="k">XP</span>
-                <span className="bar">
-                  <span
-                    style={
-                      {
-                        '--pct': `${
-                          agent.xp.toNext === 0
-                            ? 0
-                            : Math.round((agent.xp.current / agent.xp.toNext) * 100)
-                        }%`,
-                      } as React.CSSProperties
-                    }
-                  />
-                </span>
-                <span className="v">
-                  {agent.xp.current.toLocaleString()} / {agent.xp.toNext.toLocaleString()}
-                </span>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="col-right">
-          <div className="panel world">
-            <div className="panel-head">
-              <span>world view · top-down · iron_coast</span>
-              <span className="right accent">live · tick {formatTick(tick)}</span>
-            </div>
-            <div className="world-canvas">
-              {/* TODO(r3f): replace this static SVG terrain stand-in with a real
-                  three-fiber hex grid that streams nodes from the engine. */}
-              <svg viewBox="0 0 800 500" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
-                <rect width="800" height="500" fill="#0E0F12" />
-                <g stroke="#2B2A26" strokeWidth="1" fill="#1A1814">
-                  {Array.from({ length: 80 }, (_, i) => {
-                    const cols = 10;
-                    const c = i % cols;
-                    const r = Math.floor(i / cols);
-                    const W = 70;
-                    const H = (W * 2) / Math.sqrt(3);
-                    const cx = 50 + c * W + (r % 2 === 0 ? W / 2 : 0);
-                    const cy = 50 + r * H * 0.75;
-                    const pts = [
-                      [0, -H / 2],
-                      [W / 2, -H / 4],
-                      [W / 2, H / 4],
-                      [0, H / 2],
-                      [-W / 2, H / 4],
-                      [-W / 2, -H / 4],
-                    ]
-                      .map(([x, y]) => `${cx + x},${cy + y}`)
-                      .join(' ');
-                    return <polygon points={pts} key={i} />;
-                  })}
-                </g>
-                <circle cx="400" cy="250" r="6" fill="#C8A35E">
-                  <animate attributeName="r" values="6;9;6" dur="2.6s" repeatCount="indefinite" />
-                </circle>
-              </svg>
             </div>
           </div>
 
-          <div className="panel">
+          <div className="panel rail-panel rail-grow">
             <div className="panel-head">
-              <span>activity</span>
-              <span className="right">authority {agent.authority} · fame {agent.fame}</span>
+              <span>current intent</span>
+              <span className="right">{recentEvents[0]?.type ?? 'idle'}</span>
             </div>
-            <div className="activity">
+            <div className="activity rail-scroll">
               <div className="intent">
                 <div className="lbl">
                   <span className={`dot ${spawned ? 'online' : ''}`} />
@@ -477,83 +464,514 @@ export function AgentDetailPage() {
                     : 'no recent activity'}
                 </div>
               </div>
+            </div>
+          </div>
+        </section>
 
-              <div className="nearby">
-                <h3>
-                  relationships{' '}
-                  <span className="right">top {nearby.length} by impact</span>
-                </h3>
-                {nearby.length === 0 && (
-                  <div className="nearby-row" style={{ color: 'var(--text-dim)' }}>
-                    no relationships yet
+        {/* CENTER — world map hero */}
+        <section className="cockpit-map">
+          <div className="panel world cockpit-world">
+            <div className="panel-head">
+              <span>world view · agent memory</span>
+              <span className="right accent">
+                live · tick {formatTick(tick)} · {map?.nodes.length ?? 0} recalled
+              </span>
+            </div>
+            <div className="cockpit-world-canvas">
+              <WorldMap3D
+                nodes={map?.nodes ?? []}
+                currentNode={agent.location}
+                tick={tick}
+                loading={mapQuery.isLoading}
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* RIGHT RAIL — relationships + live events */}
+        <section className="rail rail-right">
+          {hasPendingChoice && (
+            <div className="cockpit-alert">
+              <span className="dot online" />
+              <span className="lbl">action required</span>
+              <span className="txt">
+                {agent.pendingClassChoice.length > 0 &&
+                  `class: ${agent.pendingClassChoice
+                    .map((c) => c.replace(/_/g, ' ').toLowerCase())
+                    .join(' / ')}`}
+                {agent.pendingClassChoice.length > 0 &&
+                  agent.pendingEvolutionChoice.length > 0 &&
+                  ' · '}
+                {agent.pendingEvolutionChoice.length > 0 &&
+                  `evolution: ${agent.pendingEvolutionChoice
+                    .map((c) => c.replace(/_/g, ' ').toLowerCase())
+                    .join(' / ')}`}
+              </span>
+            </div>
+          )}
+
+          <div className="panel rail-panel">
+            <div className="panel-head">
+              <span>relationships</span>
+              <span className="right">top {nearby.length} by impact</span>
+            </div>
+            <div className="nearby rail-nearby">
+              {nearby.length === 0 && (
+                <div className="nearby-row" style={{ color: 'var(--text-dim)' }}>
+                  no relationships yet
+                </div>
+              )}
+              {nearby.map((entry: RelationshipEntry) => {
+                const stance = stanceFor(entry.score);
+                const display = entry.agentName ?? entry.agentId;
+                const sign = entry.score >= 0 ? '+' : '';
+                return (
+                  <div className="nearby-row" key={entry.agentId}>
+                    <span className={`dot ${stance}`} />
+                    <span className="nm">{display.toLowerCase()}</span>
+                    <span className="fac">{entry.agentId}</span>
+                    <span className={`stat ${stance}`}>
+                      {stance} · {sign}
+                      {entry.score}
+                    </span>
+                    <span className="dist">
+                      tickΔ {Math.max(0, tick - entry.lastChangedAtTick)}
+                    </span>
                   </div>
-                )}
-                {nearby.map((entry: RelationshipEntry) => {
-                  const stance = stanceFor(entry.score);
-                  const display = entry.agentName ?? entry.agentId;
-                  const sign = entry.score >= 0 ? '+' : '';
-                  return (
-                    <div className="nearby-row" key={entry.agentId}>
-                      <span className={`dot ${stance}`} />
-                      <span className="nm">{display.toLowerCase()}</span>
-                      <span className="fac">{entry.agentId}</span>
-                      <span className={`stat ${stance}`}>
-                        {stance} · {sign}
-                        {entry.score}
-                      </span>
-                      <span className="dist">
-                        tickΔ {Math.max(0, tick - entry.lastChangedAtTick)}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="panel rail-panel rail-grow">
+            <div className="panel-head">
+              <span>
+                <span className="dot online evt-dot" /> events.tail
+              </span>
+              <span className="right">{agent.name.toLowerCase()} · --follow</span>
+            </div>
+            <div className="events-feed rail-scroll">
+              {recentEvents.length === 0 && (
+                <div className="row" style={{ color: 'var(--text-dim)' }}>
+                  <span className="ts">—</span>
+                  <span className="v muted">idle</span>
+                  <span className="body">waiting for events…</span>
+                </div>
+              )}
+              {recentEvents.map((ev) => {
+                const f = formatEvent(ev);
+                return (
+                  <div className="row" key={ev.id}>
+                    <span className="ts">{f.ts}</span>
+                    <span className={`v${f.muted ? ' muted' : ''}`}>{f.verb}</span>
+                    <span className="body">{f.body}</span>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </section>
       </main>
 
-      {/* Floating log window */}
-      <div className={`logwin ${logCollapsed ? 'collapsed' : ''}`}>
-        <div className="logwin-head">
-          <span className="title">
-            <span className="dot online" />
-            events.tail
-          </span>
-          <span className="sub">{agent.name.toLowerCase()} · --follow</span>
-          <span className="actions">
+      {/* ── DOCK BAR — window launchers ── */}
+      <nav className="dock">
+        <div className="dock-launchers">
+          {WIN_IDS.map((wid) => (
             <button
-              className="icon-btn"
-              onClick={() => setLogCollapsed((v) => !v)}
-              title={logCollapsed ? 'expand' : 'collapse'}
+              key={wid}
+              className={`dock-btn${win.state[wid].open ? ' active' : ''}`}
+              onClick={() => win.toggle(wid)}
+              aria-pressed={win.state[wid].open}
             >
-              {logCollapsed ? '+' : '—'}
+              {wid}
             </button>
-          </span>
+          ))}
         </div>
-        {!logCollapsed && (
-          <div className="logwin-body">
-            {recentEvents.length === 0 && (
-              <div className="row" style={{ color: 'var(--text-dim)' }}>
-                <span className="ts">—</span>
-                <span className="v muted">idle</span>
-                <span className="body">waiting for events…</span>
+        <div className="dock-status">
+          <span className={spawned ? 'state-on' : 'state-off'}>
+            <span className="kdim">●</span> {spawned ? 'online' : 'offline'}
+          </span>
+          <span className="sep">·</span>
+          <span>tick {formatTick(tick)}</span>
+        </div>
+      </nav>
+
+      {/* ── FLOATING WINDOWS — opened from the dock ── */}
+      {win.state.loadout.open && (
+        <FloatingWindow
+          id="loadout"
+          title="loadout"
+          subtitle={`12 slots · ${equippedCount} equipped${stash.length > 0 ? ` · ${stash.length} stashed` : ''}`}
+          position={win.state.loadout.pos}
+          width={WIN_CONFIG.loadout.width}
+          height={WIN_CONFIG.loadout.height}
+          zIndex={win.state.loadout.z}
+          onClose={() => win.close('loadout')}
+          onFocus={() => win.focus('loadout')}
+          onMove={(p) => win.move('loadout', p)}
+        >
+          <div className="doll">
+            <div className="col-l">
+              {(['AMULET', 'CHEST', 'BRACELET_LEFT', 'RING_LEFT'] as Slot[]).map((slot) => (
+                <SlotView
+                  key={slot}
+                  slot={slot}
+                  instance={slotIndex[slot]}
+                  active={hoveredSlot === slot}
+                  onHover={setHoveredSlot}
+                />
+              ))}
+            </div>
+
+            <div className="center">
+              <SlotView
+                slot="HELMET"
+                instance={slotIndex.HELMET}
+                className="top"
+                active={hoveredSlot === 'HELMET'}
+                onHover={setHoveredSlot}
+              />
+              <div className="model-stage">
+                <CharacterViewer
+                  agentId={agent.agentId}
+                  race={agent.race}
+                  loadout={loadout ?? null}
+                />
+                <div className="model-shadow" />
+              </div>
+              {!agent.location && (
+                <div className="model-microcopy">
+                  not spawned · spawn the agent to enter the world
+                </div>
+              )}
+              <SlotView
+                slot="BOOTS"
+                instance={slotIndex.BOOTS}
+                className="bottom-c"
+                active={hoveredSlot === 'BOOTS'}
+                onHover={setHoveredSlot}
+              />
+            </div>
+
+            <div className="col-r">
+              {(['GLOVES', 'PANTS', 'BRACELET_RIGHT', 'RING_RIGHT'] as Slot[]).map((slot) => (
+                <SlotView
+                  key={slot}
+                  slot={slot}
+                  instance={slotIndex[slot]}
+                  active={hoveredSlot === slot}
+                  onHover={setHoveredSlot}
+                />
+              ))}
+            </div>
+
+            <div className="bottom">
+              <SlotView
+                slot="MAIN_HAND"
+                instance={slotIndex.MAIN_HAND}
+                active={hoveredSlot === 'MAIN_HAND'}
+                onHover={setHoveredSlot}
+              />
+              <SlotView
+                slot="OFF_HAND"
+                instance={slotIndex.OFF_HAND}
+                active={hoveredSlot === 'OFF_HAND'}
+                onHover={setHoveredSlot}
+              />
+            </div>
+          </div>
+
+          {stash.length > 0 && (
+            <div className="stash-strip">
+              <span className="stash-lbl">stash</span>
+              {stash.map((it) => (
+                <span
+                  key={it.instanceId}
+                  className={`stash-chip rarity-${it.rarity.toLowerCase()}`}
+                  title={`${it.itemId} · ${it.category.toLowerCase()} · ${it.rarity} · durability ${it.durabilityCurrent}/${it.durabilityMax}${
+                    it.creatorAgentId ? ` · crafted by ${it.creatorAgentId}` : ''
+                  } · instance ${it.instanceId}`}
+                >
+                  {it.itemId}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {hoveredSlot && hoveredInstance && (
+            <div className="slot-tip" style={{ position: 'static', display: 'block', margin: '0 22px 16px' }}>
+              <strong style={{ color: 'var(--accent)' }}>{hoveredInstance.itemId}</strong>
+              <span style={{ color: 'var(--text-dim)', marginLeft: 6 }}>
+                · {hoveredInstance.rarity}
+              </span>
+              <div style={{ marginTop: 4 }}>
+                durability {hoveredInstance.durabilityCurrent} / {hoveredInstance.durabilityMax}
+                {hoveredInstance.creatorAgentId
+                  ? ` · crafted by ${hoveredInstance.creatorAgentId}`
+                  : ''}
+              </div>
+              <div style={{ marginTop: 4, color: 'var(--text-dim)', fontSize: 11 }}>
+                {hoveredInstance.category.toLowerCase()} · instance {hoveredInstance.instanceId}
+              </div>
+            </div>
+          )}
+        </FloatingWindow>
+      )}
+
+      {win.state.skills.open && skills && (
+        <FloatingWindow
+          id="skills"
+          title="skills"
+          subtitle={`${skills.slotsFilled} / ${skills.slotCount} slots`}
+          position={win.state.skills.pos}
+          width={WIN_CONFIG.skills.width}
+          height={WIN_CONFIG.skills.height}
+          zIndex={win.state.skills.z}
+          onClose={() => win.close('skills')}
+          onFocus={() => win.focus('skills')}
+          onMove={(p) => win.move('skills', p)}
+        >
+          <div className="skills">
+            {filledSkills.length === 0 && (
+              <div className="skill-empty">no skills slotted yet</div>
+            )}
+            {filledSkills.map((sk) => (
+              <div
+                className="skill-row"
+                key={sk.id}
+                title={`${sk.displayName} · slot ${sk.slotIndex} · id ${sk.id}`}
+              >
+                <span className="nm">
+                  {sk.displayName.toLowerCase()}
+                  <span className="cat">
+                    {sk.category.replace(/_/g, ' ').toLowerCase()} · {sk.xp.toLocaleString()} xp
+                  </span>
+                </span>
+                <span className="bar">
+                  <span
+                    style={
+                      { '--pct': `${Math.round((sk.level / maxSkillLevel) * 100)}%` } as React.CSSProperties
+                    }
+                  />
+                </span>
+                <span className="rk">
+                  Lv {sk.level}
+                  {sk.recommendCount > 0 && <span className="rec">★{sk.recommendCount}</span>}
+                </span>
+              </div>
+            ))}
+
+            {skills.unslotted.length > 0 && (
+              <>
+                <h3>unslotted</h3>
+                {skills.unslotted.map((sk) => (
+                  <div
+                    className="skill-row unslotted"
+                    key={sk.id}
+                    title={`${sk.displayName} · id ${sk.id}`}
+                  >
+                    <span className="nm">
+                      {sk.displayName.toLowerCase()}
+                      <span className="cat">
+                        {sk.category.replace(/_/g, ' ').toLowerCase()} · {sk.xp.toLocaleString()} xp
+                      </span>
+                    </span>
+                    <span className="bar">
+                      <span
+                        style={
+                          { '--pct': `${Math.round((sk.level / maxSkillLevel) * 100)}%` } as React.CSSProperties
+                        }
+                      />
+                    </span>
+                    <span className="rk">
+                      Lv {sk.level}
+                      {sk.recommendCount > 0 && <span className="rec">★{sk.recommendCount}</span>}
+                    </span>
+                  </div>
+                ))}
+              </>
+            )}
+
+            {skills.pendingPerkChoices.length > 0 && (
+              <div className="perk-note">
+                <div className="lbl">
+                  <span className="dot online" />
+                  perk choices available
+                </div>
+                {skills.pendingPerkChoices.map((p, i) => (
+                  <div className="opt" key={`${p.skillId}-${p.milestone}-${i}`}>
+                    <span className="src">
+                      {p.skillId} · milestone {p.milestone}
+                    </span>
+                    <span className="choices">{p.options.join(' / ')}</span>
+                  </div>
+                ))}
               </div>
             )}
-            {recentEvents.map((ev) => {
-              const f = formatEvent(ev);
-              return (
-                <div className="row" key={ev.id}>
-                  <span className="ts">{f.ts}</span>
-                  <span className={`v${f.muted ? ' muted' : ''}`}>{f.verb}</span>
-                  <span className="body">{f.body}</span>
-                </div>
-              );
-            })}
+
+            {skills.chosenPerks.length > 0 && (
+              <div className="chosen-perks">
+                <h3>perks</h3>
+                {skills.chosenPerks.map((p, i) => (
+                  <div className="perk" key={`${p.skillId}-${p.milestone}-${i}`}>
+                    <span className="nm">{p.perkId}</span>
+                    <span className="src">
+                      {p.skillId} · m{p.milestone}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        )}
-      </div>
-    </>
+        </FloatingWindow>
+      )}
+
+      {win.state.inventory.open && (
+        <FloatingWindow
+          id="inventory"
+          title="inventory"
+          subtitle={`${resources.length} resource${resources.length === 1 ? '' : 's'}${
+            keys.length > 0 ? ` · ${keys.length} key${keys.length === 1 ? '' : 's'}` : ''
+          }`}
+          position={win.state.inventory.pos}
+          width={WIN_CONFIG.inventory.width}
+          height={WIN_CONFIG.inventory.height}
+          zIndex={win.state.inventory.z}
+          onClose={() => win.close('inventory')}
+          onFocus={() => win.focus('inventory')}
+          onMove={(p) => win.move('inventory', p)}
+        >
+          <div className="inv">
+            {resources.length === 0 && keys.length === 0 && (
+              <div className="skill-empty" style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text-dim)' }}>
+                empty — no resources or keys
+              </div>
+            )}
+            {resources.length > 0 && (
+              <div className="inv-grid">
+                {resources.map((it) => (
+                  <div
+                    className={`inv-cell rarity-${it.rarity.toLowerCase()}`}
+                    key={it.itemId}
+                    title={`${it.itemId} · ${it.rarity} · ×${it.quantity}`}
+                  >
+                    {glyphFor(it.itemId)}
+                    <span className="qty">{it.quantity}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {keys.length > 0 && (
+              <div className="inv-keys">
+                {keys.map((k) => (
+                  <div
+                    className={`key rarity-${k.rarity.toLowerCase()}`}
+                    key={k.instanceId}
+                    title={`${k.itemId} · ${k.category.toLowerCase()} · ${k.rarity.toLowerCase()} · instance ${k.instanceId}${
+                      k.gateInstanceId ? ` · opens gate ${k.gateInstanceId}` : ''
+                    }`}
+                  >
+                    <span className="ico">⚷</span>
+                    <span className="nm">{k.itemId}</span>
+                    <span className="rar">{k.rarity.toLowerCase()}</span>
+                    {k.gateInstanceId && (
+                      <span className="gate">→ gate {k.gateInstanceId.slice(0, 8)}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </FloatingWindow>
+      )}
+
+      {win.state.sheet.open && (
+        <FloatingWindow
+          id="sheet"
+          title="character sheet"
+          subtitle={`tick ${formatTick(agent.tick)}`}
+          position={win.state.sheet.pos}
+          width={WIN_CONFIG.sheet.width}
+          height={WIN_CONFIG.sheet.height}
+          zIndex={win.state.sheet.z}
+          onClose={() => win.close('sheet')}
+          onFocus={() => win.focus('sheet')}
+          onMove={(p) => win.move('sheet', p)}
+        >
+          <div className="sheet">
+            <h3>
+              attributes
+              {agent.unspentAttributePoints > 0 && (
+                <span className="right accent">{agent.unspentAttributePoints} unspent</span>
+              )}
+            </h3>
+            <div className="attrs">
+              {ATTR_LABEL.map(([key, label]) => {
+                const v = agent.attributes[key];
+                return (
+                  <div className="a" key={key}>
+                    <span className="k">{label}</span>
+                    <span className="v">{v}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <h3>standing</h3>
+            <div className="meta-grid">
+              <div className="row">
+                <span className="k">race</span>
+                <span className="v">{agent.race.replace(/_/g, ' ')}</span>
+              </div>
+              <div className="row">
+                <span className="k">class</span>
+                <span className="v">{(agent.classId ?? 'unrevealed').toLowerCase()}</span>
+              </div>
+              <div className="row">
+                <span className="k">authority</span>
+                <span className={`v${agent.authority > 0 ? ' up' : ''}`}>{agent.authority}</span>
+              </div>
+              <div className="row">
+                <span className="k">fame</span>
+                <span className={`v${agent.fame > 0 ? ' up' : ''}`}>{agent.fame}</span>
+              </div>
+              <div className="row">
+                <span className="k">safe node</span>
+                <span className="v">{agent.safeNode != null ? `node.${agent.safeNode}` : '—'}</span>
+              </div>
+              <div className="row">
+                <span className="k">spawn</span>
+                <span className="v">{agent.location != null ? `node.${agent.location}` : 'unspawned'}</span>
+              </div>
+              <div className="row">
+                <span className="k">tick</span>
+                <span className="v">{formatTick(agent.tick)}</span>
+              </div>
+            </div>
+
+            <div className="xp-row">
+              <span className="k">XP</span>
+              <span className="bar">
+                <span
+                  style={
+                    {
+                      '--pct': `${
+                        agent.xp.toNext === 0
+                          ? 0
+                          : Math.round((agent.xp.current / agent.xp.toNext) * 100)
+                      }%`,
+                    } as React.CSSProperties
+                  }
+                />
+              </span>
+              <span className="v">
+                {agent.xp.current.toLocaleString()} / {agent.xp.toNext.toLocaleString()}
+              </span>
+            </div>
+          </div>
+        </FloatingWindow>
+      )}
+    </div>
   );
 }
 

@@ -13,6 +13,10 @@ dist
 .playwright-mcp/
 test-results/
 playwright-report/
+/*.png
+
+# Local agent config
+.claude/
 
 # MSW service worker is generated; we commit it though (recommended).
 # Uncomment to ignore: public/mockServiceWorker.js

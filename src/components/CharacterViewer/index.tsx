@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { memo, Suspense, useEffect, useMemo, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import type { Loadout } from '@/api/types';
 import { deriveAppearance } from '@/3d/appearance';
@@ -15,7 +15,7 @@ interface Props {
 
 // Public entry — handles WebGL detection, manifest preload, loading state,
 // and the r3f Canvas. The actual scene is in Scene.tsx.
-export function CharacterViewer({ agentId, race, loadout }: Props) {
+function CharacterViewerImpl({ agentId, race, loadout }: Props) {
   const webglOk = useMemo(() => detectWebGL(), []);
   const appearance = useMemo(() => deriveAppearance(agentId, race), [agentId, race]);
 
@@ -69,3 +69,7 @@ export function CharacterViewer({ agentId, race, loadout }: Props) {
     </div>
   );
 }
+
+// Memoised so a parent re-render (poll/SSE tick, or dragging the loadout
+// window it lives in) doesn't re-reconcile the WebGL scene; props are stable.
+export const CharacterViewer = memo(CharacterViewerImpl);
