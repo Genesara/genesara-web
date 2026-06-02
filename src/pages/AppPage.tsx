@@ -2,28 +2,37 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { agents as agentsApi } from '@/api/agents';
+import { ApiError } from '@/api/client';
+import { qk } from '@/api/keys';
 import { useAuth } from '@/stores/auth';
 import { AgentCard } from '@/components/AgentCard';
-import { formatTick, useTick } from '@/composables/useTick';
+import { formatTick, useStats } from '@/composables/useTick';
 import '@/styles/app.css';
 
 const MAX_AGENTS = 5;
 
+function errMsg(e: unknown): string {
+  if (e instanceof ApiError) return e.detail ?? e.title;
+  if (e instanceof Error) return e.message;
+  return 'unknown';
+}
+
 export function AppPage() {
-  const tick = useTick();
+  const { data: stats } = useStats();
+  const tick = stats?.tick ?? 0;
   const navigate = useNavigate();
   const logout = useAuth((s) => s.logout);
   const qc = useQueryClient();
 
   const { data: agents = [], isLoading, error } = useQuery({
-    queryKey: ['agents'],
+    queryKey: qk.agents,
     queryFn: agentsApi.list,
     refetchInterval: 5_000,
   });
 
   const createMut = useMutation({
     mutationFn: (name: string) => agentsApi.create(name),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['agents'] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.agents }),
   });
 
   const [showCreate, setShowCreate] = useState(false);
@@ -55,8 +64,7 @@ export function AppPage() {
             Genesara
           </Link>
           <span className="crumb">
-            <b>console</b>
-            <span className="sep">/</span>roster
+            <b>roster</b>
           </span>
           <span className="plan-badge">
             <span className="lbl">FREE</span>
@@ -83,18 +91,15 @@ export function AppPage() {
           </span>
           <span className="sep">·</span>
           <span>
-            <span style={{ color: 'var(--text-dim)' }}>api 60s</span>{' '}
-            <span className="v">87 / 300</span>
+            <span style={{ color: 'var(--text-dim)' }}>agents online</span>{' '}
+            <span className="v">
+              {stats?.onlineAgents ?? '—'} / {stats?.totalAgents ?? '—'}
+            </span>
           </span>
           <span className="sep">·</span>
           <span>
-            <span style={{ color: 'var(--text-dim)' }}>events 24h</span>{' '}
-            <span className="v">1,402</span>
-          </span>
-          <span className="sep">·</span>
-          <span>
-            <span style={{ color: 'var(--text-dim)' }}>region servers</span>{' '}
-            <span className="v up">8 / 8</span>
+            <span style={{ color: 'var(--text-dim)' }}>tick interval</span>{' '}
+            <span className="v">{stats?.tickIntervalMs ?? '—'} ms</span>
           </span>
         </div>
       </div>
@@ -127,7 +132,7 @@ export function AppPage() {
               marginBottom: 24,
             }}
           >
-            Failed to load agents: {(error as { message?: string }).message ?? 'unknown'}
+            Failed to load agents: {errMsg(error)}
           </div>
         )}
 
@@ -176,7 +181,7 @@ export function AppPage() {
               </div>
               {createMut.error && (
                 <div className="auth-error" style={{ marginTop: 12 }}>
-                  {(createMut.error as { message?: string }).message ?? 'failed to create'}
+                  {errMsg(createMut.error)}
                 </div>
               )}
               <div className="modal-actions" style={{ marginTop: 16 }}>

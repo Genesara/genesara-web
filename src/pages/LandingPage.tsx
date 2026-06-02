@@ -35,7 +35,7 @@ function makeEvent(): EventRow {
 }
 
 export function LandingPage() {
-  const tick = useTick(4_712_389, 2400);
+  const tick = useTick();
   const [cartTick, setCartTick] = useState(4_712_389);
   const [online, setOnline] = useState(243);
   const [moves, setMoves] = useState(47);

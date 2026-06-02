@@ -1,18 +1,26 @@
-import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { stats } from '@/api/stats';
+import { qk } from '@/api/keys';
 
 /**
- * Drives the fake "world tick" counter on landing / soon / app pages.
- * Replace with a real WebSocket / SSE subscription to the engine when available.
+ * Live `/api/stats` poll. Replaces the simulated tick.
  */
-export function useTick(start = 4_712_389, intervalMs = 2400): number {
-  const [tick, setTick] = useState(start);
-  useEffect(() => {
-    const t = setInterval(() => {
-      setTick((v) => v + 1 + Math.floor(Math.random() * 3));
-    }, intervalMs);
-    return () => clearInterval(t);
-  }, [intervalMs]);
-  return tick;
+export function useStats() {
+  return useQuery({
+    queryKey: qk.stats,
+    queryFn: stats.get,
+    refetchInterval: 1500,
+    staleTime: 1200,
+  });
+}
+
+/**
+ * @deprecated Use {@link useStats} directly to also access onlineAgents/totalAgents.
+ * Kept as a thin shim so existing call sites still resolve.
+ */
+export function useTick(): number {
+  const { data } = useStats();
+  return data?.tick ?? 0;
 }
 
 export function formatTick(n: number): string {

@@ -1,6 +1,32 @@
 import { create } from 'zustand';
-import { auth as creds } from '@/api/client';
+import { ApiError } from '@/api/client';
 import { players } from '@/api/players';
+
+const JWT_KEY = 'genesara.jwt';
+const PLR_KEY = 'genesara.plr';
+
+function readSession(key: string): string | null {
+  try {
+    return sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeSession(key: string, value: string | null) {
+  try {
+    if (value === null) sessionStorage.removeItem(key);
+    else sessionStorage.setItem(key, value);
+  } catch {
+    // ignore — private mode, etc.
+  }
+}
+
+function readError(e: unknown, fallback: string): string {
+  if (e instanceof ApiError) return e.detail ?? e.title ?? fallback;
+  if (e instanceof Error) return e.message;
+  return fallback;
+}
 
 interface AuthState {
   jwt: string | null;
@@ -11,11 +37,13 @@ interface AuthState {
   login: (username: string, password: string) => Promise<void>;
   register: (username: string, password: string) => Promise<void>;
   logout: () => void;
+  handle401: () => void;
+  setApiToken: (token: string) => void;
 }
 
 export const useAuth = create<AuthState>((set) => ({
-  jwt: creds.jwt(),
-  plrToken: creds.plrToken(),
+  jwt: readSession(JWT_KEY),
+  plrToken: readSession(PLR_KEY),
   loading: false,
   error: null,
 
@@ -23,12 +51,13 @@ export const useAuth = create<AuthState>((set) => ({
     set({ loading: true, error: null });
     try {
       const { token } = await players.login(username, password);
-      creds.setJwt(token);
+      writeSession(JWT_KEY, token);
+      set({ jwt: token });
       const { apiToken } = await players.myApiToken();
-      creds.setPlr(apiToken);
-      set({ jwt: token, plrToken: apiToken, loading: false });
+      writeSession(PLR_KEY, apiToken);
+      set({ plrToken: apiToken, loading: false });
     } catch (e) {
-      const message = e instanceof Error ? e.message : (e as { message?: string }).message ?? 'login failed';
+      const message = readError(e, 'login failed');
       set({ loading: false, error: message });
       throw e;
     }
@@ -38,19 +67,36 @@ export const useAuth = create<AuthState>((set) => ({
     set({ loading: true, error: null });
     try {
       const reg = await players.register(username, password);
-      // Auto-login so we have a JWT for REST calls.
-      const { token } = await players.login(username, password);
-      creds.setSession(token, reg.apiToken);
+      // Engine returns `token` on register per the new brief; older mocks
+      // may not, so fall back to a login round-trip.
+      let token = reg.token;
+      if (!token) {
+        token = (await players.login(username, password)).token;
+      }
+      writeSession(JWT_KEY, token);
+      writeSession(PLR_KEY, reg.apiToken);
       set({ jwt: token, plrToken: reg.apiToken, loading: false });
     } catch (e) {
-      const message = e instanceof Error ? e.message : (e as { message?: string }).message ?? 'register failed';
+      const message = readError(e, 'register failed');
       set({ loading: false, error: message });
       throw e;
     }
   },
 
   logout() {
-    creds.clear();
+    writeSession(JWT_KEY, null);
+    writeSession(PLR_KEY, null);
     set({ jwt: null, plrToken: null, error: null });
+  },
+
+  handle401() {
+    writeSession(JWT_KEY, null);
+    writeSession(PLR_KEY, null);
+    set({ jwt: null, plrToken: null });
+  },
+
+  setApiToken(token) {
+    writeSession(PLR_KEY, token);
+    set({ plrToken: token });
   },
 }));

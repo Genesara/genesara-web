@@ -1,0 +1,28 @@
+{
+  "version": "0.1.0",
+  "baseMeshes": {
+    "bodies": {
+      "lean": null,
+      "average": null,
+      "heavy": null
+    },
+    "heads": [null, null, null, null, null, null, null, null],
+    "hairs": [null, null, null, null, null, null, null, null, null]
+  },
+  "slotDefaults": {
+    "HELMET": null,
+    "CHEST": null,
+    "PANTS": null,
+    "BOOTS": null,
+    "GLOVES": null,
+    "AMULET": null,
+    "RING_LEFT": null,
+    "RING_RIGHT": null,
+    "BRACELET_LEFT": null,
+    "BRACELET_RIGHT": null,
+    "MAIN_HAND": null,
+    "OFF_HAND": null
+  },
+  "equipment": [],
+  "idleAnim": null
+}

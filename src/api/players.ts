@@ -3,26 +3,26 @@ import type { ApiTokenResponse, LoginResponse, RegisterResponse } from './types'
 
 export const players = {
   register(username: string, password: string) {
-    return api<RegisterResponse>('/api/players', {
-      method: 'POST',
-      body: { username, password },
-      authed: false,
-    });
+    return api.post<RegisterResponse>(
+      '/api/players',
+      { username, password },
+      { authed: false },
+    );
   },
 
   login(username: string, password: string) {
-    return api<LoginResponse>('/api/players/login', {
-      method: 'POST',
-      body: { username, password },
-      authed: false,
-    });
+    return api.post<LoginResponse>(
+      '/api/players/login',
+      { username, password },
+      { authed: false },
+    );
   },
 
   myApiToken() {
-    return api<ApiTokenResponse>('/api/me/api-token');
+    return api.get<ApiTokenResponse>('/api/me/api-token');
   },
 
   rotateApiToken() {
-    return api<ApiTokenResponse>('/api/me/api-token/rotate', { method: 'POST' });
+    return api.post<ApiTokenResponse>('/api/me/api-token/rotate');
   },
 };
