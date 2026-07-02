@@ -17,6 +17,7 @@ import {
   fixtureEvents,
   fixtureInventory,
   fixtureLoadout,
+  fixtureLookAround,
   fixtureMap,
   fixtureRelationships,
   fixtureSkills,
@@ -181,6 +182,19 @@ export const handlers = [
     const nodes = mapState[id];
     if (!nodes) return notFound(`/api/agents/${id}/map`);
     return HttpResponse.json({ nodes });
+  }),
+
+  // REST mirror of MCP look_around — plr_ token + X-Agent-Id auth, mirroring
+  // the engine: missing/bad credentials → 401, agent not placed → 409.
+  http.get('/api/agent/me/look-around', ({ request }) => {
+    const auth = request.headers.get('Authorization');
+    const agentId = request.headers.get('X-Agent-Id');
+    if (!auth?.startsWith('Bearer ') || !agentId) {
+      return new HttpResponse(null, { status: 401 });
+    }
+    const lookAround = fixtureLookAround(agentId);
+    if (!lookAround) return new HttpResponse(null, { status: 409 });
+    return HttpResponse.json(lookAround);
   }),
 
   http.get('/api/agents/:agentId/relationships', ({ params }) => {

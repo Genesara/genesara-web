@@ -180,6 +180,94 @@ export interface RecalledNode {
   lastSeenTick: number;
 }
 
+// ── Live surroundings ───────────────────────────────────────────────────────
+// GET /api/agent/me/look-around — REST mirror of the MCP `look_around` tool,
+// authed with the player API token (plr_) + X-Agent-Id header, same chain as
+// MCP. Shapes mirror LookAroundToolIo.kt in the engine. The REST mirror
+// currently populates nodes / resources / neighbours; npcs, agents,
+// buildings, mounts and groundItems arrive as empty arrays until the engine
+// fills them in (the MCP tool already populates all of them).
+
+export interface NpcPresence {
+  id: string; // wire-prefixed `npc:<uuid>`
+  type: string;
+  displayName: string;
+  hpBand: string;
+  aggression: string; // PASSIVE | TERRITORIAL | HOSTILE
+}
+
+export interface AgentPresence {
+  id: string; // wire-prefixed `agent:<uuid>`
+  name: string;
+  race: string;
+  level: number;
+  hpBand: string;
+}
+
+export interface BuildingSummary {
+  type: string;
+  status: string;
+  instanceId?: string | null;
+  progressSteps?: number | null;
+  totalSteps?: number | null;
+  hpBand?: string | null;
+  builderAgentId?: string | null;
+  plotId?: string | null;
+  plantedCrop?: string | null;
+  ticksToRipe?: number | null;
+  ticksUntilNeglect?: number | null;
+  isOpen?: boolean | null;
+}
+
+export interface MountPresence {
+  id: string; // wire-prefixed `mount:<uuid>`
+  type: string;
+  ridden: boolean;
+  at: number;
+}
+
+export interface GroundItem {
+  dropId: string;
+  itemId: string;
+  droppedAtTick: number;
+  kind: 'STACKABLE' | 'EQUIPMENT';
+  quantity?: number | null;
+  rarity?: Rarity | null;
+  durabilityCurrent?: number | null;
+  durabilityMax?: number | null;
+  creatorAgentId?: string | null;
+  createdAtTick?: number | null;
+}
+
+export interface LookAroundNode {
+  id: number;
+  q: number;
+  r: number;
+  biome: Biome | null;
+  climate: string | null;
+  terrain: Terrain;
+  pvpEnabled: boolean;
+  resources: string[]; // item ids; quantities only on currentResources
+  buildings: BuildingSummary[];
+  agents: AgentPresence[]; // populated on the current node only (fog-of-war)
+  npcs: NpcPresence[];
+}
+
+export interface ResourceCount {
+  itemId: string;
+  quantity: number;
+  initialQuantity: number;
+}
+
+export interface LookAround {
+  currentNode: LookAroundNode;
+  currentResources: ResourceCount[];
+  groundItems: GroundItem[];
+  visible: LookAroundNode[];
+  neighbours: number[];
+  mounts: MountPresence[];
+}
+
 export interface RelationshipEntry {
   agentId: string;
   agentName: string | null;

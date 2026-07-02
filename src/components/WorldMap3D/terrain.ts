@@ -1,4 +1,51 @@
-import type { Terrain } from '@/api/types';
+import type { Color } from 'three';
+import type { RecalledNode, Terrain } from '@/api/types';
+
+// Optimized KayKit Medieval Hexagon Pack geometry — built by
+// scripts/prep-terrain.mjs, consumed by TerrainMeshes.tsx.
+export const TERRAIN_GLB = '/models/terrain/terrain.glb';
+
+// Tile circumradius as a fraction of the hex pitch — slight gap keeps the
+// "recalled memory fragments" read the flat-color map had.
+export const TILE_RADIUS_K = 0.96;
+
+// Tiles and props fade toward this as their last sighting ages.
+export const MEMORY_FADE_COLOR = '#15161a';
+
+export interface TileData {
+  node: RecalledNode;
+  x: number;
+  z: number;
+  height: number;
+  size: number;
+  color: Color;
+  colorHex: string;
+  fade: number; // 0..1 lerp toward MEMORY_FADE_COLOR already baked into color
+  isCurrent: boolean;
+}
+
+export type HoverFn = (node: RecalledNode | null, ev?: PointerEvent) => void;
+
+// Axial offsets of the 6 hex neighbours, ordered to match the edge index
+// convention used by the palisade renderer: entry k sits across the edge
+// whose midpoint is at angle 30° + 60°k (flat-top axial, x = 1.5q).
+export const AXIAL_NEIGHBOURS: [number, number][] = [
+  [1, 0],
+  [0, 1],
+  [-1, 1],
+  [-1, 0],
+  [0, -1],
+  [1, -1],
+];
+
+// World-space anchor for a fog-of-war cloud bank: an unexplored hex position
+// adjacent to at least one recalled tile (the frontier of the agent's map
+// memory). seed ∈ [0,1) drives per-cloud size/rotation/jitter.
+export interface FogAnchor {
+  x: number;
+  z: number;
+  seed: number;
+}
 
 // Terrain palette — ported from design/project/agent.js (the TERRAIN table) and
 // extended to cover every value in the engine's Terrain enum. Muted, earthy,

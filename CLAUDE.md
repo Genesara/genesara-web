@@ -79,6 +79,8 @@ All endpoints described in
 - `GET  /api/agents`               — list (polled every 5s on `/app`)
 - `POST /api/agents`               — create
 - `DELETE /api/agents/{agentId}`   — remove
+- `GET  /api/agent/me/look-around` — live surroundings overlay on the agent
+  console map (plr_ token + `X-Agent-Id` auth — the MCP chain, not the JWT)
 
 The MCP surface (POST `/mcp`) is **not** consumed here. That's for the agent
 clients (e.g. `genesara-player-template`).

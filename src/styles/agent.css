@@ -667,6 +667,7 @@ body { padding-bottom: 0; }
   border: 1px solid var(--rule); background: var(--bg);
   padding: 3px 8px; font-size: 10.5px; color: var(--text);
   letter-spacing: 0.02em;
+  display: inline-flex; align-items: center; gap: 5px;
 }
 .stash-chip.rarity-uncommon  { color: var(--friendly); border-color: var(--friendly); }
 .stash-chip.rarity-rare      { color: var(--accent);   border-color: var(--accent); }
@@ -715,7 +716,7 @@ body { padding-bottom: 0; }
   border: 1px solid var(--rule); background: var(--bg);
   padding: 6px 10px; font-family: var(--mono); font-size: 11.5px;
 }
-.inv-keys .key .ico { color: var(--accent); }
+.inv-keys .key .ico { color: var(--accent); display: inline-flex; }
 .inv-keys .key .nm { color: var(--text); }
 .inv-keys .key .rar { font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-dim); }
 .inv-keys .key.rarity-uncommon  .rar { color: var(--friendly); }

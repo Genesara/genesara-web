@@ -23,6 +23,7 @@ export const RACE_CONFIGS: Record<RaceId, RaceConfig> = {
     hairPalette: ['#2C1A0F', '#1A0F08', '#4A3220', '#3A2418', '#221510'],
     eyePalette: ['#3B2A1A', '#5A3E22', '#4A3220', '#2C1A10'],
     heightRange: [0.97, 1.04],
+    headsRange: [7.3, 7.7],
   },
   human_coastal: {
     raceId: 'human_coastal',
@@ -33,6 +34,7 @@ export const RACE_CONFIGS: Record<RaceId, RaceConfig> = {
     hairPalette: ['#3A2418', '#5A3820', '#1F1208', '#6B4828', '#4A2E1A'],
     eyePalette: ['#4A3A20', '#3A2818', '#6B4A2A', '#284A4E'],
     heightRange: [0.95, 1.02],
+    headsRange: [7.1, 7.5],
   },
   human_alpine: {
     raceId: 'human_alpine',
@@ -43,5 +45,6 @@ export const RACE_CONFIGS: Record<RaceId, RaceConfig> = {
     hairPalette: ['#6B4828', '#8A6238', '#3A2418', '#A07A4A', '#241810'],
     eyePalette: ['#284A4E', '#3A5E62', '#4A4220', '#3B2A1A'],
     heightRange: [0.99, 1.06],
+    headsRange: [7.5, 7.9],
   },
 };

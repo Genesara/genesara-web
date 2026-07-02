@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { agents as agentsApi } from '@/api/agents';
 import { players } from '@/api/players';
+import { runtime } from '@/api/runtime';
 import { ApiError } from '@/api/client';
 import { qk } from '@/api/keys';
 import type {
@@ -16,6 +17,7 @@ import { useAuth } from '@/stores/auth';
 import { useAgentEvents, type ReceivedAgentEvent } from '@/composables/useAgentEvents';
 import { formatTick, useStats } from '@/composables/useTick';
 import { CharacterViewer } from '@/components/CharacterViewer';
+import { ItemIcon } from '@/components/ItemIcon';
 import { WorldMap3D } from '@/components/WorldMap3D';
 import { FloatingWindow } from '@/components/FloatingWindow';
 import '@/styles/app.css';
@@ -56,13 +58,6 @@ function stanceFor(score: number): 'friendly' | 'hostile' | 'neutral' {
   if (score > 0) return 'friendly';
   if (score < 0) return 'hostile';
   return 'neutral';
-}
-
-// One display glyph for an inventory cell — first letter of the item's last
-// name segment (`herb_blueleaf` → B, `map_fragment.iron_coast` → I).
-function glyphFor(itemId: string): string {
-  const seg = itemId.split(/[._]/).filter(Boolean).pop() ?? itemId;
-  return (seg[0] ?? '?').toUpperCase();
 }
 
 function formatEvent(ev: ReceivedAgentEvent): { ts: string; verb: string; body: string; muted?: boolean } {
@@ -230,11 +225,33 @@ export function AgentDetailPage() {
     retry: retry404Aware,
   });
 
+  // Live surroundings via the look_around REST mirror (plr_ token auth).
+  // Optional overlay: 401/404/409 (rotated token, unspawned agent) simply
+  // leave the map without presence markers, so never retry or surface it.
+  const plrToken = useAuth((s) => s.plrToken);
+  const placed = detailQuery.data?.location != null;
+  const surroundingsQuery = useQuery({
+    queryKey: qk.agentSurroundings(id),
+    queryFn: () => runtime.lookAround(id, plrToken!),
+    refetchInterval: 5000,
+    enabled: !!id && !detailNotFound && !!plrToken && placed,
+    retry: false,
+  });
+
   // Skip SSE/backfill when the agent is known not to exist.
   const { events } = useAgentEvents(detailNotFound ? undefined : id);
 
   const agent = detailQuery.data;
   const loadout = loadoutQuery.data;
+
+  // Stable identity — WorldMap3D is memoized and the cockpit re-renders on
+  // every poll; detailQuery returns a fresh object each cycle.
+  const ownId = agent?.agentId;
+  const ownRace = agent?.race;
+  const ownAgent = useMemo(
+    () => (ownId && ownRace ? { agentId: ownId, race: ownRace, loadout: loadout ?? null } : null),
+    [ownId, ownRace, loadout],
+  );
   const relationships = relationshipsQuery.data;
   const skills = skillsQuery.data;
   const map = mapQuery.data;
@@ -483,6 +500,8 @@ export function AgentDetailPage() {
                 currentNode={agent.location}
                 tick={tick}
                 loading={mapQuery.isLoading}
+                surroundings={surroundingsQuery.data ?? null}
+                ownAgent={ownAgent}
               />
             </div>
           </div>
@@ -692,6 +711,7 @@ export function AgentDetailPage() {
                     it.creatorAgentId ? ` · crafted by ${it.creatorAgentId}` : ''
                   } · instance ${it.instanceId}`}
                 >
+                  <ItemIcon itemId={it.itemId} category={it.category} size={13} />
                   {it.itemId}
                 </span>
               ))}
@@ -855,7 +875,7 @@ export function AgentDetailPage() {
                     key={it.itemId}
                     title={`${it.itemId} · ${it.rarity} · ×${it.quantity}`}
                   >
-                    {glyphFor(it.itemId)}
+                    <ItemIcon itemId={it.itemId} size={22} />
                     <span className="qty">{it.quantity}</span>
                   </div>
                 ))}
@@ -871,7 +891,9 @@ export function AgentDetailPage() {
                       k.gateInstanceId ? ` · opens gate ${k.gateInstanceId}` : ''
                     }`}
                   >
-                    <span className="ico">⚷</span>
+                    <span className="ico">
+                      <ItemIcon itemId={k.itemId} category={k.category} size={14} />
+                    </span>
                     <span className="nm">{k.itemId}</span>
                     <span className="rar">{k.rarity.toLowerCase()}</span>
                     {k.gateInstanceId && (
@@ -1208,6 +1230,11 @@ function SlotView({ slot, instance, className, active, onHover }: SlotProps) {
       onMouseEnter={() => equipped && onHover(slot)}
       onMouseLeave={() => onHover(null)}
     >
+      {instance && (
+        <span className={`item rarity-${instance.rarity.toLowerCase()}`}>
+          <ItemIcon itemId={instance.itemId} category={instance.category} size={26} />
+        </span>
+      )}
       <span className="lbl">{label}</span>
     </div>
   );

@@ -1,38 +1,49 @@
-import { memo, useMemo, useRef, useState } from 'react';
-import { Canvas, useFrame, type ThreeEvent } from '@react-three/fiber';
+import { memo, Suspense, useMemo, useRef, useState } from 'react';
+import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import { Color, type Mesh } from 'three';
-import type { RecalledNode, Terrain } from '@/api/types';
+import type { LookAround, RecalledNode, Terrain } from '@/api/types';
 import { detectWebGL } from '../CharacterViewer/webgl';
-import { axialToWorld, terrainColor, terrainElevation, terrainLabel } from './terrain';
+import {
+  AXIAL_NEIGHBOURS,
+  axialToWorld,
+  MEMORY_FADE_COLOR,
+  terrainColor,
+  terrainElevation,
+  terrainLabel,
+  TILE_RADIUS_K,
+  type FogAnchor,
+  type HoverFn,
+  type TileData,
+} from './terrain';
+import { placeProps } from './decorations';
+import { TerrainProps, TerrainTiles } from './TerrainMeshes';
+import { buildingLabel, buildPresence, resourceLabel } from './presence';
+import { PresenceLayer, type OwnAgent } from './PresenceLayer';
+import { FogClouds } from './FogClouds';
 
 interface Props {
   nodes: RecalledNode[];
   currentNode: number | null;
   tick: number;
   loading?: boolean;
+  /** Live look-around overlay (npcs, agents, resources) — optional. */
+  surroundings?: LookAround | null;
+  /** Renders the player's agent as a character mini on its tile. */
+  ownAgent?: OwnAgent | null;
 }
 
 const FIT_RADIUS = 5.5;
 const SCALE_MIN = 0.25;
 const SCALE_MAX = 2.2;
-const FADE_INTO = new Color('#15161a');
+const FADE_INTO = new Color(MEMORY_FADE_COLOR);
 const ACCENT = '#c8a35e';
-
-interface TileData {
-  node: RecalledNode;
-  x: number;
-  z: number;
-  height: number;
-  size: number;
-  color: Color;
-  colorHex: string;
-  isCurrent: boolean;
-}
 
 interface Layout {
   tiles: TileData[];
   scale: number;
+  /** Unexplored hexes bordering the recall — fog-of-war cloud anchors. */
+  fog: FogAnchor[];
 }
 
 function clamp(v: number, lo: number, hi: number) {
@@ -44,7 +55,7 @@ function clamp(v: number, lo: number, hi: number) {
 // agent has explored. Tile colour fades toward the background with sighting age.
 function useLayout(nodes: RecalledNode[], currentNode: number | null, tick: number): Layout {
   return useMemo(() => {
-    if (nodes.length === 0) return { tiles: [], scale: 1 };
+    if (nodes.length === 0) return { tiles: [], scale: 1, fog: [] };
 
     const raw = nodes.map((n) => {
       const [x, z] = axialToWorld(n.q, n.r, 1);
@@ -63,7 +74,8 @@ function useLayout(nodes: RecalledNode[], currentNode: number | null, tick: numb
     const tiles: TileData[] = raw.map(({ n, x, z }) => {
       const age = Math.max(0, tick - n.lastSeenTick);
       const freshness = 1 - age / maxAge; // 1 = just seen, 0 = oldest memory
-      const color = new Color(terrainColor(n.terrain)).lerp(FADE_INTO, 0.5 * (1 - freshness));
+      const fade = 0.5 * (1 - freshness);
+      const color = new Color(terrainColor(n.terrain)).lerp(FADE_INTO, fade);
       const elev = terrainElevation(n.terrain);
       return {
         node: n,
@@ -73,49 +85,48 @@ function useLayout(nodes: RecalledNode[], currentNode: number | null, tick: numb
         size: scale,
         color,
         colorHex: `#${color.getHexString()}`,
+        fade,
         isCurrent: currentNode != null && n.nodeId === currentNode,
       };
     });
 
-    return { tiles, scale };
+    // Fog-of-war frontier: every empty hex touching a recalled tile gets a
+    // cloud anchor, so unexplored space reads as fog instead of darkness.
+    const occupied = new Set(nodes.map((n) => `${n.q},${n.r}`));
+    const fog: FogAnchor[] = [];
+    for (const n of nodes) {
+      for (const [dq, dr] of AXIAL_NEIGHBOURS) {
+        const fq = n.q + dq;
+        const fr = n.r + dr;
+        const key = `${fq},${fr}`;
+        if (occupied.has(key)) continue;
+        occupied.add(key); // dedupe — one anchor per frontier hex
+        const [ax, az] = axialToWorld(fq, fr, 1);
+        const seed =
+          (Math.imul((fq * 73856093) ^ (fr * 19349663), 2654435761) >>> 0) / 4294967296;
+        fog.push({ x: (ax - cx) * scale, z: (az - cz) * scale, seed });
+      }
+    }
+
+    return { tiles, scale, fog };
   }, [nodes, currentNode, tick]);
 }
 
-type HoverFn = (node: RecalledNode | null, ev?: PointerEvent) => void;
-
-function HexTile({ tile, onHover }: { tile: TileData; onHover: HoverFn }) {
-  const r = tile.size * 0.92;
-  return (
-    <mesh
-      position={[tile.x, tile.height / 2, tile.z]}
-      onPointerOver={(e: ThreeEvent<PointerEvent>) => {
-        e.stopPropagation();
-        onHover(tile.node, e.nativeEvent);
-      }}
-      onPointerMove={(e: ThreeEvent<PointerEvent>) => {
-        e.stopPropagation();
-        onHover(tile.node, e.nativeEvent);
-      }}
-      onPointerOut={() => onHover(null)}
-    >
-      <cylinderGeometry args={[r, r, tile.height, 6]} />
-      <meshStandardMaterial color={tile.color} roughness={0.92} metalness={0.04} flatShading />
-    </mesh>
-  );
-}
-
-// Pulsing pin + ground ring over the agent's current node.
-function CurrentMarker({ tile }: { tile: TileData }) {
+// Pulsing pin + ground ring over the agent's current node. `clearance`
+// lifts the pin above whatever decoration sits on the tile (mountains,
+// tree clusters) so it never spawns inside a prop.
+function CurrentMarker({ tile, clearance }: { tile: TileData; clearance: number }) {
   const pin = useRef<Mesh>(null);
+  const base = tile.height + clearance;
   useFrame((state) => {
     if (!pin.current) return;
     const t = state.clock.elapsedTime;
-    pin.current.position.y = tile.height + tile.size * (0.55 + Math.sin(t * 2.4) * 0.08);
+    pin.current.position.y = base + tile.size * (0.55 + Math.sin(t * 2.4) * 0.08);
   });
   const s = tile.size;
   return (
     <group position={[tile.x, 0, tile.z]}>
-      <mesh ref={pin} position={[0, tile.height + s * 0.55, 0]} rotation={[Math.PI, 0, 0]}>
+      <mesh ref={pin} position={[0, base + s * 0.55, 0]} rotation={[Math.PI, 0, 0]}>
         <coneGeometry args={[s * 0.16, s * 0.36, 4]} />
         <meshStandardMaterial color={ACCENT} emissive={ACCENT} emissiveIntensity={0.6} roughness={0.4} />
       </mesh>
@@ -127,14 +138,56 @@ function CurrentMarker({ tile }: { tile: TileData }) {
   );
 }
 
-function Scene({ layout, onHover }: { layout: Layout; onHover: HoverFn }) {
+function Scene({
+  layout,
+  presence,
+  ownAgent,
+  onHover,
+}: {
+  layout: Layout;
+  presence: ReturnType<typeof buildPresence>;
+  ownAgent: OwnAgent | null;
+  onHover: HoverFn;
+}) {
   const current = layout.tiles.find((t) => t.isCurrent);
+  const propLayout = useMemo(
+    () =>
+      placeProps(
+        layout.tiles.map((t) => ({
+          nodeId: t.node.nodeId,
+          terrain: t.node.terrain,
+          x: t.x,
+          z: t.z,
+          height: t.height,
+          radius: t.size * TILE_RADIUS_K,
+          fade: t.fade,
+          colorHex: t.colorHex,
+        })),
+      ),
+    [layout.tiles],
+  );
   return (
     <>
-      <ambientLight intensity={0.5} />
-      <hemisphereLight args={['#cfcabe', '#0E0F12', 0.4]} />
-      <directionalLight position={[4, 9, 5]} intensity={0.9} color="#E8E5DE" />
-      <directionalLight position={[-5, 4, -3]} intensity={0.35} color={ACCENT} />
+      {/* Warm key with soft shadows + paper-tone sky fill + gold rim; fog
+          melts the far rim of the memory into the backdrop. */}
+      <ambientLight intensity={0.42} />
+      <hemisphereLight args={['#d6d0c2', '#141210', 0.65]} />
+      <directionalLight
+        castShadow
+        position={[6, 10, 4]}
+        intensity={1.6}
+        color="#f3e9d4"
+        shadow-mapSize={[2048, 2048]}
+        shadow-camera-left={-9}
+        shadow-camera-right={9}
+        shadow-camera-top={9}
+        shadow-camera-bottom={-9}
+        shadow-camera-near={2}
+        shadow-camera-far={28}
+        shadow-bias={-0.0004}
+      />
+      <directionalLight position={[-5, 4, -3]} intensity={0.55} color={ACCENT} />
+      <fog attach="fog" args={['#0a0b0d', 17, 40]} />
 
       {/* Catch-plane so gaps read as backdrop, not see-through. */}
       <mesh position={[0, -0.02, 0]} rotation={[-Math.PI / 2, 0, 0]}>
@@ -142,12 +195,27 @@ function Scene({ layout, onHover }: { layout: Layout; onHover: HoverFn }) {
         <meshBasicMaterial color="#0a0b0d" />
       </mesh>
 
-      <group>
-        {layout.tiles.map((tile) => (
-          <HexTile key={tile.node.nodeId} tile={tile} onHover={onHover} />
-        ))}
-        {current && <CurrentMarker tile={current} />}
-      </group>
+      <Suspense fallback={null}>
+        <TerrainTiles tiles={layout.tiles} onHover={onHover} />
+        <TerrainProps placements={propLayout.placements} />
+        <FogClouds anchors={layout.fog} size={layout.scale} />
+        <PresenceLayer tiles={layout.tiles} presence={presence} ownAgent={ownAgent} />
+        {current && (
+          <CurrentMarker
+            tile={current}
+            clearance={Math.max(
+              propLayout.clearanceByNode.get(current.node.nodeId) ?? 0,
+              // Buildings on the current tile reach roughly a tile-pitch up;
+              // float the pin above the rooflines.
+              (presence.get(current.node.nodeId)?.buildings.some(
+                (b) => b.type !== 'WOODEN_WALL' && b.type !== 'GATE' && b.type !== 'CAMPFIRE',
+              )
+                ? 0.9
+                : 0) * current.size,
+            )}
+          />
+        )}
+      </Suspense>
 
       <OrbitControls
         makeDefault
@@ -214,10 +282,12 @@ function FallbackSvg({
   );
 }
 
-function WorldMap3DImpl({ nodes, currentNode, tick, loading }: Props) {
+function WorldMap3DImpl({ nodes, currentNode, tick, loading, surroundings, ownAgent }: Props) {
   const webglOk = useMemo(() => detectWebGL(), []);
   const layout = useLayout(nodes, currentNode, tick);
+  const presence = useMemo(() => buildPresence(surroundings), [surroundings]);
   const [hover, setHover] = useState<{ node: RecalledNode; x: number; y: number } | null>(null);
+  const hoverPresence = hover ? presence.get(hover.node.nodeId) : undefined;
 
   const onHover: HoverFn = (node, ev) => {
     if (!node || !ev) return setHover(null);
@@ -257,12 +327,13 @@ function WorldMap3DImpl({ nodes, currentNode, tick, loading }: Props) {
     <div className="world-canvas" onMouseLeave={() => setHover(null)}>
       {webglOk ? (
         <Canvas
+          shadows
           camera={{ position: [0, 9.2, 6.0], fov: 38, near: 0.1, far: 100 }}
           dpr={[1, 2]}
           gl={{ antialias: true }}
           style={{ background: 'transparent' }}
         >
-          <Scene layout={layout} onHover={onHover} />
+          <Scene layout={layout} presence={presence} ownAgent={ownAgent ?? null} onHover={onHover} />
         </Canvas>
       ) : (
         <FallbackSvg layout={layout} currentNode={currentNode} tick={tick} />
@@ -298,6 +369,36 @@ function WorldMap3DImpl({ nodes, currentNode, tick, loading }: Props) {
               discovered tick {hover.node.firstSeenTick.toLocaleString()}
               {hover.node.nodeId === currentNode ? ' · you are here' : ''}
             </div>
+            {hoverPresence && hoverPresence.buildings.length > 0 && (
+              <div className="coord">
+                buildings: {hoverPresence.buildings.map(buildingLabel).join(', ')}
+              </div>
+            )}
+            {hoverPresence && hoverPresence.resources.length > 0 && (
+              <div className="coord">
+                resources:{' '}
+                {hoverPresence.resources
+                  .map((id) => {
+                    const qty = hoverPresence.quantities?.get(id);
+                    return qty != null ? `${resourceLabel(id)} ×${qty}` : resourceLabel(id);
+                  })
+                  .join(', ')}
+              </div>
+            )}
+            {hoverPresence && hoverPresence.npcs.length > 0 && (
+              <div className="coord">
+                npcs:{' '}
+                {hoverPresence.npcs
+                  .map((n) => `${n.displayName.toLowerCase()} (${n.aggression.toLowerCase()})`)
+                  .join(', ')}
+              </div>
+            )}
+            {hoverPresence && hoverPresence.agents.length > 0 && (
+              <div className="coord">
+                agents:{' '}
+                {hoverPresence.agents.map((a) => `${a.name.toLowerCase()} lv.${a.level}`).join(', ')}
+              </div>
+            )}
           </>
         )}
       </div>

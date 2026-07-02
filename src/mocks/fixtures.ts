@@ -2,8 +2,13 @@ import type {
   Agent,
   AgentDetail,
   AgentEvent,
+  AgentPresence,
+  BuildingSummary,
   InventoryEntry,
   Loadout,
+  LookAround,
+  LookAroundNode,
+  NpcPresence,
   PublicStats,
   RecalledNode,
   Relationships,
@@ -29,7 +34,7 @@ export const fixtureAgents: Agent[] = [
       thirst: { current: 50, max: 100 },
       sleep: { current: 50, max: 100 },
     },
-    locationNodeId: 142078,
+    locationNodeId: 143616, // artId(0, 0)
     spawned: true,
     lastActiveAt: now(),
   },
@@ -116,7 +121,8 @@ export const fixtureDetail: Record<string, AgentDetail> = {
     },
     unspentAttributePoints: 0,
     gauges: fixtureAgents[0].gauges,
-    location: 142078,
+    // Current node must exist in fixtureMap.artemis — the map marker keys off it.
+    location: 143616, // artId(0, 0)
     safeNode: 142080,
     tick: fixtureStats.tick,
     authority: 14,
@@ -323,16 +329,112 @@ function ring(center: number, q: number, r: number, terrain: RecalledNode['terra
   };
 }
 
+// ── Generated recall for artemis ────────────────────────────────────────────
+// A radius-7 axial patch (169 nodes) with coherent regions so the 3D map gets
+// exercised at realistic scale: mountain range NE, glacier patch N, forest
+// belt W, south sea with a coastal rim, swamp pocket SE, desert E, a road
+// through the plains heart, and the rare terrains placed as landmarks.
+// Fully deterministic (hash, not Math.random) so nodeIds and terrain are
+// stable across reloads.
+
+type GenTerrain = RecalledNode['terrain'];
+type GenBiome = RecalledNode['biome'];
+
+const ARTEMIS_RADIUS = 7;
+
+const artId = (q: number, r: number) => 142000 + (q + 16) * 100 + (r + 16);
+
+function axialDist(q: number, r: number): number {
+  return (Math.abs(q) + Math.abs(r) + Math.abs(q + r)) / 2;
+}
+
+function hash2(q: number, r: number): number {
+  let h = Math.imul(q + 101, 374761393) + Math.imul(r + 101, 668265263);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+// Landmark tiles override their zone.
+const LANDMARKS: Record<string, [GenTerrain, GenBiome]> = {
+  '-4,1': ['SACRED_GROVE', 'FOREST'],
+  '-3,3': ['ANCIENT_RUINS', 'RUINS'],
+  '3,-3': ['CRYSTAL_CAVES', 'MOUNTAIN'],
+  '1,3': ['CURSED_LAND', 'RUINS'],
+  '2,2': ['BLIGHTED', 'RUINS'],
+  '2,-6': ['VOLCANIC', 'MOUNTAIN'],
+};
+
+function terrainAt(q: number, r: number): [GenTerrain, GenBiome] {
+  const landmark = LANDMARKS[`${q},${r}`];
+  if (landmark) return landmark;
+  const h = hash2(q, r);
+
+  // South sea: w grows toward world +z (south on screen).
+  const w = r + q / 2;
+  if (w > 5.2) return ['OCEAN', 'OCEAN'];
+  if (w > 4.4) return [h < 0.5 ? 'SHORELINE' : 'COASTAL', 'COASTAL'];
+
+  // Swamp pocket between the coast and the plains.
+  const dSwamp = axialDist(q - 5, r - 1);
+  if (dSwamp <= 1) return ['SWAMP', 'SWAMP'];
+  if (dSwamp === 2 && h < 0.6) return [h < 0.3 ? 'WETLANDS' : 'RIVER_DELTA', 'SWAMP'];
+
+  // North-east mountain range with a weathered rim.
+  const dMountain = axialDist(q - 4, r + 5);
+  if (dMountain <= 1) return [h < 0.45 ? 'ALPINE' : 'MOUNTAIN', 'MOUNTAIN'];
+  if (dMountain === 2)
+    return [h < 0.4 ? 'MOUNTAIN' : h < 0.7 ? 'CLIFFSIDE' : 'CANYON', 'MOUNTAIN'];
+  if (dMountain === 3) return [h < 0.5 ? 'FOOTHILLS' : 'HILLS', 'MOUNTAIN'];
+
+  // Glacier patch north.
+  const dGlacier = axialDist(q + 2, r + 4);
+  if (dGlacier <= 1) return [h < 0.5 ? 'GLACIER' : 'ICE_TUNDRA', 'TUNDRA'];
+  if (dGlacier === 2 && h < 0.4) return ['ICE_TUNDRA', 'TUNDRA'];
+
+  // Desert pocket east.
+  if (axialDist(q - 6, r + 2) <= 1) return [h < 0.7 ? 'DESERT' : 'SALT_FLATS', 'DESERT'];
+
+  // Western forest belt, deepening to rainforest at the far edge.
+  if (q <= -2) {
+    if (q === -2) return [h < 0.6 ? 'FOREST_EDGE' : 'FOREST', 'FOREST'];
+    if (q <= -5 && h < 0.45) return ['RAINFOREST', 'FOREST'];
+    return [h < 0.7 ? 'FOREST' : 'BIRCH_FOREST', 'FOREST'];
+  }
+
+  // East-west road through the heart.
+  if (r === 0 && q >= -1 && q <= 4)
+    return [h < 0.65 ? 'DIRT_PATH' : 'TRADE_ROUTE', 'PLAINS'];
+
+  return [h < 0.55 ? 'PLAINS' : h < 0.85 ? 'MEADOW' : 'HILLS', 'PLAINS'];
+}
+
+function generateArtemisRecall(): RecalledNode[] {
+  const out: RecalledNode[] = [];
+  for (let q = -ARTEMIS_RADIUS; q <= ARTEMIS_RADIUS; q++) {
+    const rMin = Math.max(-ARTEMIS_RADIUS, -q - ARTEMIS_RADIUS);
+    const rMax = Math.min(ARTEMIS_RADIUS, -q + ARTEMIS_RADIUS);
+    for (let r = rMin; r <= rMax; r++) {
+      const [terrain, biome] = terrainAt(q, r);
+      // Sightings age with distance from the agent's node at (0,0), so the
+      // memory fade deepens toward the rim of the recalled patch.
+      const age = Math.round(axialDist(q, r) * 160 * (0.5 + hash2(r * 3, q * 5)));
+      out.push({
+        nodeId: artId(q, r),
+        regionId: 142,
+        q,
+        r,
+        terrain,
+        biome,
+        firstSeenTick: fixtureStats.tick - age - 2500,
+        lastSeenTick: fixtureStats.tick - age,
+      });
+    }
+  }
+  return out;
+}
+
 export const fixtureMap: Record<string, RecalledNode[]> = {
-  artemis: [
-    ring(142000, 0, 0, 'PLAINS', 'PLAINS'),
-    ring(142000, 1, 0, 'HILLS', 'PLAINS'),
-    ring(142000, -1, 0, 'FOREST_EDGE', 'FOREST'),
-    ring(142000, 0, 1, 'MEADOW', 'PLAINS'),
-    ring(142000, 0, -1, 'BIRCH_FOREST', 'FOREST'),
-    ring(142000, 1, -1, 'FOOTHILLS', 'PLAINS'),
-    ring(142000, -1, 1, 'DIRT_PATH', 'FOREST'),
-  ],
+  artemis: generateArtemisRecall(),
   baldur: [
     ring(142000, 0, 0, 'PLAINS', 'PLAINS'),
     ring(142000, 1, 0, 'PLAINS', 'PLAINS'),
@@ -349,6 +451,173 @@ export const fixtureMap: Record<string, RecalledNode[]> = {
     ring(142000, 2, 0, 'ANCIENT_RUINS', 'RUINS'),
   ],
 };
+
+// ── Look-around fixture (REST mirror of MCP look_around) ────────────────────
+// Derives live surroundings from the generated artemis world: sight radius 2
+// around the current node at (0,0), per-terrain resource rolls, deterministic
+// NPC spawns from the engine fauna catalog, and two agents sharing the tile.
+// The real REST mirror doesn't populate npcs/agents yet — the mock populates
+// everything so the portal renders the full forward-looking contract.
+
+const SIGHT_RADIUS = 2;
+
+type TerrainKey = RecalledNode['terrain'];
+
+const RESOURCE_POOL: Partial<Record<TerrainKey, string[]>> = {
+  FOREST: ['WOOD', 'BERRY', 'HERB', 'MUSHROOM'],
+  BIRCH_FOREST: ['WOOD', 'BERRY', 'HERB'],
+  RAINFOREST: ['WOOD', 'HERB', 'MUSHROOM'],
+  FOREST_EDGE: ['WOOD', 'BERRY'],
+  SACRED_GROVE: ['HERB', 'MUSHROOM'],
+  PLAINS: ['BERRY', 'HERB', 'FIBER'],
+  MEADOW: ['BERRY', 'HERB', 'FIBER'],
+  HILLS: ['STONE', 'ORE'],
+  FOOTHILLS: ['STONE', 'ORE'],
+  MOUNTAIN: ['STONE', 'ORE', 'COAL'],
+  ALPINE: ['STONE', 'ORE'],
+  CLIFFSIDE: ['STONE'],
+  CANYON: ['STONE', 'COAL'],
+  VOLCANIC: ['COAL', 'ORE'],
+  DESERT: ['SAND', 'SALT'],
+  SALT_FLATS: ['SALT', 'SAND'],
+  ICE_TUNDRA: ['STONE'],
+  GLACIER: ['STONE'],
+  WETLANDS: ['CLAY', 'PEAT', 'HERB'],
+  SWAMP: ['PEAT', 'CLAY'],
+  RIVER_DELTA: ['CLAY', 'FISH'],
+  COASTAL: ['FISH', 'SAND'],
+  SHORELINE: ['FISH', 'SAND'],
+  OCEAN: ['FISH'],
+  ANCIENT_RUINS: ['STONE'],
+  CRYSTAL_CAVES: ['GEM', 'STONE'],
+};
+
+// type / displayName / aggression lifted from the engine's npcs.yaml catalog.
+const NPC_POOL: Partial<Record<TerrainKey, [string, string, string][]>> = {
+  FOREST: [['GRAY_WOLF', 'Gray Wolf', 'TERRITORIAL'], ['DEER', 'Deer', 'PASSIVE'], ['WILD_BOAR', 'Wild Boar', 'TERRITORIAL']],
+  BIRCH_FOREST: [['DEER', 'Deer', 'PASSIVE'], ['RED_FOX', 'Red Fox', 'PASSIVE']],
+  RAINFOREST: [['GIANT_SPIDER', 'Giant Spider', 'HOSTILE'], ['BLACK_PANTHER', 'Black Panther', 'TERRITORIAL']],
+  FOREST_EDGE: [['GRAY_WOLF', 'Gray Wolf', 'TERRITORIAL'], ['DEER', 'Deer', 'PASSIVE']],
+  PLAINS: [['WILD_HORSE', 'Wild Horse', 'PASSIVE'], ['PHEASANT', 'Pheasant', 'PASSIVE']],
+  MEADOW: [['DEER', 'Deer', 'PASSIVE'], ['WILD_TURKEY', 'Wild Turkey', 'PASSIVE']],
+  HILLS: [['MOUNTAIN_GOAT', 'Mountain Goat', 'TERRITORIAL']],
+  FOOTHILLS: [['MOUNTAIN_GOAT', 'Mountain Goat', 'TERRITORIAL'], ['COUGAR', 'Cougar', 'TERRITORIAL']],
+  MOUNTAIN: [['MOUNTAIN_GOAT', 'Mountain Goat', 'TERRITORIAL'], ['BROWN_BEAR', 'Brown Bear', 'TERRITORIAL']],
+  CANYON: [['COUGAR', 'Cougar', 'TERRITORIAL']],
+  DESERT: [['SAND_VIPER', 'Sand Viper', 'HOSTILE'], ['DESERT_JACKAL', 'Desert Jackal', 'HOSTILE']],
+  ICE_TUNDRA: [['SNOW_HARE', 'Snow Hare', 'PASSIVE']],
+  GLACIER: [['SNOW_HARE', 'Snow Hare', 'PASSIVE']],
+  WETLANDS: [['BOG_TURTLE', 'Bog Turtle', 'PASSIVE'], ['SWAMP_PYTHON', 'Swamp Python', 'HOSTILE']],
+  SWAMP: [['SWAMP_PYTHON', 'Swamp Python', 'HOSTILE'], ['MONITOR_LIZARD', 'Monitor Lizard', 'TERRITORIAL']],
+  RIVER_DELTA: [['RIVER_OTTER', 'River Otter', 'PASSIVE']],
+  CURSED_LAND: [['GIANT_RAT', 'Giant Rat', 'HOSTILE']],
+  BLIGHTED: [['GIANT_RAT', 'Giant Rat', 'HOSTILE']],
+};
+
+const HP_BANDS = ['low', 'mid', 'high'];
+
+// Buildings around artemis's camp at (0,0) — a settled tile (shelter,
+// campfire, half-built workbench), infrastructure on the road, a walled +
+// gated frontier toward the mountains, a mine at the foothills.
+const BUILDINGS_AT: Record<string, BuildingSummary[]> = {
+  '0,0': [
+    { type: 'SHELTER', status: 'ACTIVE', instanceId: 'bld-shelter-1', hpBand: 'high', builderAgentId: 'agent:artemis' },
+    { type: 'CAMPFIRE', status: 'ACTIVE', instanceId: 'bld-campfire-1', hpBand: 'mid', builderAgentId: 'agent:artemis' },
+    { type: 'WORKBENCH', status: 'UNDER_CONSTRUCTION', instanceId: 'bld-workbench-1', progressSteps: 2, totalSteps: 6, builderAgentId: 'agent:artemis' },
+  ],
+  '1,0': [{ type: 'TRADING_POST', status: 'ACTIVE' }],
+  '-1,0': [
+    { type: 'WELL', status: 'ACTIVE' },
+    { type: 'STORAGE_CHEST', status: 'ACTIVE' },
+  ],
+  '0,1': [{ type: 'FARM_PLOT', status: 'ACTIVE', plantedCrop: 'WHEAT', ticksToRipe: 120 }],
+  '1,-1': [{ type: 'FORGE', status: 'UNDER_CONSTRUCTION' }],
+  // Walled compound: three adjacent walled tiles render as ONE enclosure
+  // (interior edges skipped), gate doorway on the perimeter.
+  '2,0': [{ type: 'WOODEN_WALL', status: 'ACTIVE' }],
+  '2,-1': [{ type: 'GATE', status: 'ACTIVE', isOpen: false }],
+  '2,-2': [
+    { type: 'MINE', status: 'ACTIVE' },
+    { type: 'WOODEN_WALL', status: 'ACTIVE' },
+  ],
+  '-1,1': [{ type: 'WATCHTOWER', status: 'ACTIVE' }],
+  '-2,0': [{ type: 'BREWERY', status: 'ACTIVE' }],
+};
+
+// Fog-of-war: adjacent tiles carry type + status (+ the two at-distance
+// fields) only — instance ids and progress are current-tile detail.
+function fogStrip(b: BuildingSummary): BuildingSummary {
+  return { type: b.type, status: b.status, plantedCrop: b.plantedCrop, isOpen: b.isOpen };
+}
+
+function lookAroundNodeFor(n: RecalledNode, isCurrent: boolean): LookAroundNode {
+  const h = hash2(n.q * 7, n.r * 13);
+  const pool = RESOURCE_POOL[n.terrain] ?? [];
+  const resourceCount = pool.length === 0 ? 0 : 1 + Math.floor(h * Math.min(3, pool.length));
+  const resources = pool.slice(0, resourceCount);
+
+  const npcs: NpcPresence[] = [];
+  const npcPool = NPC_POOL[n.terrain] ?? [];
+  if (npcPool.length > 0 && hash2(n.r * 11, n.q * 17) < 0.45) {
+    const count = 1 + (hash2(n.q * 19, n.r * 23) < 0.3 ? 1 : 0);
+    for (let i = 0; i < count; i++) {
+      const [type, displayName, aggression] = npcPool[Math.floor(hash2(n.q + i, n.r - i) * npcPool.length)];
+      npcs.push({
+        id: `npc:${n.nodeId}-${i}`,
+        type,
+        displayName,
+        hpBand: HP_BANDS[Math.floor(hash2(n.r + i, n.q + i) * 3)],
+        aggression,
+      });
+    }
+  }
+
+  const agents: AgentPresence[] = isCurrent
+    ? [
+        { id: 'agent:b2c4e6a8-0000-4000-8000-cassia000001', name: 'Cassia', race: 'human_steppe', level: 9, hpBand: 'high' },
+        { id: 'agent:d4f6a8b0-0000-4000-8000-stranger0001', name: 'Warg-3A', race: 'human_steppe', level: 4, hpBand: 'low' },
+      ]
+    : [];
+
+  const buildings = (BUILDINGS_AT[`${n.q},${n.r}`] ?? []).map((b) =>
+    isCurrent ? b : fogStrip(b),
+  );
+
+  return {
+    id: n.nodeId,
+    q: n.q,
+    r: n.r,
+    biome: n.biome,
+    climate: null,
+    terrain: n.terrain,
+    pvpEnabled: true,
+    resources,
+    buildings,
+    agents,
+    npcs,
+  };
+}
+
+export function fixtureLookAround(agentId: string): LookAround | null {
+  if (agentId !== 'artemis') return null;
+  const nodes = fixtureMap.artemis;
+  const current = nodes.find((n) => n.q === 0 && n.r === 0);
+  if (!current) return null;
+  const inSight = nodes.filter((n) => n !== current && axialDist(n.q, n.r) <= SIGHT_RADIUS);
+  const currentView = lookAroundNodeFor(current, true);
+  return {
+    currentNode: currentView,
+    currentResources: currentView.resources.map((itemId, i) => ({
+      itemId,
+      quantity: 12 + Math.floor(hash2(i + 1, current.nodeId) * 60),
+      initialQuantity: 80,
+    })),
+    groundItems: [],
+    visible: inSight.map((n) => lookAroundNodeFor(n, false)),
+    neighbours: nodes.filter((n) => axialDist(n.q, n.r) === 1).map((n) => n.nodeId),
+    mounts: [],
+  };
+}
 
 export const fixtureRelationships: Record<string, Relationships> = {
   artemis: {

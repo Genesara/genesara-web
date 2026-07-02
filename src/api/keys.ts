@@ -10,6 +10,7 @@ export const qk = {
   agentInventory: (id: string) => ['agent', id, 'inventory'] as const,
   agentLoadout: (id: string) => ['agent', id, 'loadout'] as const,
   agentMap: (id: string) => ['agent', id, 'map'] as const,
+  agentSurroundings: (id: string) => ['agent', id, 'surroundings'] as const,
   agentRelationships: (id: string) => ['agent', id, 'relationships'] as const,
   agentEvents: (id: string) => ['agent', id, 'events'] as const,
 };

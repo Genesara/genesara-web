@@ -27,12 +27,16 @@
     "zustand": "^5.0.2"
   },
   "devDependencies": {
+    "@gltf-transform/core": "^4.4.0",
+    "@gltf-transform/extensions": "^4.4.0",
+    "@gltf-transform/functions": "^4.4.0",
     "@types/node": "^22.10.2",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
     "@types/three": "^0.171.0",
     "@vitejs/plugin-react": "^4.3.4",
     "msw": "^2.7.0",
+    "sharp": "^0.35.1",
     "typescript": "^5.7.2",
     "vite": "^6.0.5"
   },

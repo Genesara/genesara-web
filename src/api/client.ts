@@ -28,6 +28,12 @@ interface RequestOptions {
   body?: unknown;
   authed?: boolean;
   signal?: AbortSignal;
+  /** Extra headers merged into the request (e.g. X-Agent-Id). */
+  headers?: Record<string, string>;
+  /** Bearer token override — used for plr_-token endpoints instead of the JWT. */
+  bearer?: string;
+  /** Don't trigger the global logout on 401 — for non-JWT auth failures. */
+  silent401?: boolean;
 }
 
 let deps: ClientDeps | null = null;
@@ -38,9 +44,11 @@ export function installClient(next: ClientDeps): void {
 
 async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   const { method = 'GET', body, authed = true, signal } = opts;
-  const headers: Record<string, string> = { Accept: 'application/json' };
+  const headers: Record<string, string> = { Accept: 'application/json', ...opts.headers };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
-  if (authed) {
+  if (opts.bearer) {
+    headers.Authorization = `Bearer ${opts.bearer}`;
+  } else if (authed) {
     const token = deps?.getToken() ?? null;
     if (token) headers.Authorization = `Bearer ${token}`;
   }
@@ -54,7 +62,7 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
 
   if (!res.ok) {
     const problem = await tryParseProblem(res);
-    if (res.status === 401) deps?.onUnauthorized();
+    if (res.status === 401 && !opts.silent401) deps?.onUnauthorized();
     throw new ApiError(res.status, problem);
   }
 
